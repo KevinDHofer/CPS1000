@@ -1,0 +1,172 @@
+library(tidyverse)
+library(dplyr)
+library("ComplexHeatmap")
+library(circlize)
+
+#load raw data
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+drugCategory_modified <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/drugCategory_modified.csv", sep=";")
+
+load("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/patmeta_210324.RData")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+#merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#create "other" group for less prevalent diseases
+merged_other <- merged_table_long |>
+  filter(diagnosis != "") |> 
+  mutate(diag = case_when(diagnosis == "B-NHL" ~ "other",
+  diagnosis == "MZL" ~ "other",
+  diagnosis == "CML" ~ "other",
+  diagnosis == "Sezary" ~ "other",
+  diagnosis == "FL" ~ "other",
+  diagnosis == "HCL" ~ "other",
+  diagnosis == "BPDCN" ~ "other",
+  diagnosis == "CMML" ~ "other",
+  diagnosis == "LPL" ~ "other",
+  diagnosis == "MDS" ~ "other",
+  TRUE ~ diagnosis))
+merged_other  
+
+#create means across concentration levels
+df_means <- merged_other |> 
+  group_by(patientID, diagnosis, drug) |> 
+    summarize(mean(viability))
+df_means
+
+#create means across drugs for pathways
+df_means <- df_means |> rename(viab = "mean(viability)")
+df_new <- df_means |> 
+  group_by(patientID, drug) |> 
+    summarize(viab)
+df_new    
+
+#pivot wider
+wide <- pivot_wider(df_new, names_from = patientID, values_from = viab)
+wide
+
+#add diagnosis
+diag <- usedSamples_all[, c(1, 4)] |> filter(diagnosis != "")
+
+#merge with patMeta for IGHV status and create "other" group
+ighv <- patMeta[, c(1, 9)]
+
+diag_merged_cll <- merge(diag, ighv, by.x = "patientID", by.y= "Patient.ID") |>     mutate(IGHV = case_when(IGHV.status == "U" ~ "U-CLL",
+                        IGHV.status == "M" ~ "M-CLL",
+                        TRUE ~ diagnosis))
+                            
+diag_merged_cll_other <- diag_merged_cll |> 
+mutate(diag = case_when(diagnosis == "CLL" ~ IGHV, 
+  diagnosis == "B-NHL" ~ "other",
+  diagnosis == "MZL" ~ "other",
+  diagnosis == "CML" ~ "other",
+  diagnosis == "Sezary" ~ "other",
+  diagnosis == "FL" ~ "other",
+  diagnosis == "HCL" ~ "other",
+  diagnosis == "BPDCN" ~ "other",
+  diagnosis == "CMML" ~ "other",
+  diagnosis == "LPL" ~ "other",
+  diagnosis == "MDS" ~ "other",
+  TRUE ~ diagnosis))    
+diag_merged_cll_other
+
+diag_merged_cll_other <- diag_merged_cll_other |> 
+  filter (IGHV != "CLL")
+
+#adjust the wide df  
+diag_merged_cll_other$patientID 
+
+wide.use <- names(wide)[(names(wide) %in% diag_merged_cll_other$patientID)]
+wide.subset <- wide[, wide.use]
+
+#merge with pathway table
+df_pathway <- drugCategory_modified[, c(2, 5)]
+
+df_comb <- merge(df_pathway, wide, by = "drug", all = TRUE)
+
+#scale
+x <- data.frame(wide.subset)
+y <- data.frame(t(scale(t(x))))
+
+#create matrix
+rownames(y) = wide$drug
+colnames(y) = colnames(wide.subset)
+z <- as.matrix(y)
+
+#set colors
+library(RColorBrewer)
+library(paletteer)
+    
+df_comb$Pathway_mod <- factor(df_comb$Pathway_mod,
+    levels = c("AKT/mTOR", "B-cell receptor", "Bromodomain/PLK", "Chemotherapy", 
+               "DNA damage response", "JAK/STAT", "MAPK", "PI3K", "Stress pathway", "other"))
+               
+diag_merged_cll_other$diag <- factor(diag_merged_cll_other$diag,
+    levels = c("AML", "B-ALL", "B-PLL", "M-CLL", "MCL", "T-ALL", "T-PLL", "U-CLL", "other"))
+
+annotation_colors_row <- setNames(c("lightgrey", "#BC80BD", "#FCCDE5", "#B3DE69", "#FDB462", "#80B1D3", "#FB8072", "#BEBADA", "#FFFFB3", "#8DD3C7"), c("other", "AKT/mTOR", "DNA damage response", "Chemotherapy" ,  "MAPK" , "B-cell receptor", "PI3K", "Stress pathway", "Bromodomain/PLK", "JAK/STAT"))
+
+annotation_colors <- setNames(c("#1F78B4", "#B2DF8A", "#33A02C", "grey80", "#E31A1C", "#FB9A99", "#FF7F00", "#CAB2D6", "#A6CEE3"), c("MCL", "U-CLL", "M-CLL", "other", "AML", "T-ALL", "B-ALL", "B-PLL", "T-PLL"))
+
+color_fun_reversed <- colorRamp2(c(4, median(z), -4), c("red", "white", "blue"))
+
+#annotations
+ha = HeatmapAnnotation(
+  Diagnosis = diag_merged_cll_other$diag, 
+  annotation_name_gp = gpar(fontsize = 8), 
+  col = list(Diagnosis = annotation_colors),
+  annotation_legend_param = list(
+    Diagnosis = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8),
+      nrow = 2
+    )
+  )
+)
+pway <- as.data.frame(df_comb[,1:2])
+pway_ordered = pway[match(rownames(z), pway$drug), ]
+
+ha2 = rowAnnotation(
+  Pathway = pway_ordered$Pathway_mod, 
+  annotation_name_gp = gpar(fontsize = 8), 
+  col = list(Pathway = annotation_colors_row),
+  annotation_legend_param = list(
+    Pathway = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8),
+      nrow = 2
+    )
+  )
+)
+
+#heatmap
+h <- Heatmap(z, name = "Z-score", show_row_names = TRUE, show_column_names=FALSE, row_names_gp = gpar(fontsize = 8), width = ncol(z)*unit(0.28, "mm"), height = nrow(z)*unit(3.5, "mm"), col = color_fun_reversed, top_annotation = ha, left_annotation = ha2, show_column_dend = FALSE, row_km = 5, row_title = NULL, 
+#row_title_gp = gpar(fontsize = 8), 
+show_parent_dend_line = FALSE, heatmap_legend_param = list(direction = "horizontal", title_gp = gpar(fontsize = 8, fontface = "bold"), labels_gp = gpar(fontsize = 8)))
+
+set.seed(123)
+draw(h, merge_legends = TRUE,
+     legend_gap = unit(0.5, "cm"))
+    
+Fig3b <- grid.grabExpr(draw(h, merge_legends = TRUE, heatmap_legend_side="bottom", padding = unit(c(10, 10, 0, 0), "mm")))
+Fig3b

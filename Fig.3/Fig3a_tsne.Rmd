@@ -1,0 +1,67 @@
+library(Rtsne)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+
+#import raw data
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+#merge the tables, remove missing diagnosis
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+  
+#classify diseases with low numbers as others
+df2 <- data.frame(merged_table) |> 
+  mutate(disease = case_when(
+    diagnosis == "B-NHL" |
+    diagnosis == "MZL" |
+    diagnosis == "CML" |
+    diagnosis == "CMML" |
+    diagnosis == "Sezary" |
+    diagnosis == "FL" |
+    diagnosis == "HCL" |
+    diagnosis == "LPL" |
+    diagnosis == "MDS" |
+    diagnosis == "" |
+    diagnosis == "BPDCN" ~ "other",
+    TRUE ~ diagnosis
+  ))
+
+#split dataframe in measures and subsetting
+df_meas <- df2[,5:319]
+df_subset <- df2[,320]
+
+#set colors
+mycolors <- setNames(c("#1F78B4", "#B2DF8A", "#A6CEE3", "grey", "#E31A1C", "#FB9A99", "#FF7F00", "#CAB2D6"), c("MCL", "CLL", "T-PLL", "other", "AML", "T-ALL", "B-ALL", "B-PLL"))
+
+# Define order with "other" last
+order <- c("AML", "B-ALL", "B-PLL", "CLL", "MCL", "T-ALL", "T-PLL", "other")
+
+# Convert df_subset to a factor with the specified order
+df_subset <- factor(df_subset, levels = order)
+
+#t-sne
+set.seed(10)
+tsne_results <- Rtsne(df_meas, perplexity=25, check_duplicates = FALSE)
+                        
+#plotting
+tsne_plot <- data.frame(x = tsne_results$Y[,1], y = tsne_results$Y[,2])
+Fig3a <-ggplot(tsne_plot) + geom_point(aes(x=x, y=y, color=df_subset), size=2, alpha=0.9) +
+theme_classic() +
+labs(color="Diagnosis")+
+scale_color_manual(values =mycolors)+
+theme(axis.text.x = element_text(color="black", size=8), axis.text.y = element_text(color="black", size=8), axis.title = element_text(color="black", size=8), legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.line = element_line(size = 0.5), plot.margin = margin(t = 1,  # Top margin
+                             r = 1,  # Right margin
+                             b = 1,  # Bottom margin
+                             l = 1,  # Left margin
+                             unit = "cm"))
+
+Fig3a

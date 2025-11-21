@@ -1,0 +1,150 @@
+library(tidyverse)
+library("ComplexHeatmap")
+library(ggh4x)
+library(grid)
+library(gridExtra)
+
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#change order according to mean viability  
+merged_table_long_order <- group_by(merged_table_long, drug) |> 
+  summarise(mean = mean(viability), n = n()) |> 
+  arrange (-mean)
+  
+merged_table_long$drug <- factor(merged_table_long$drug, levels = merged_table_long_order$drug)  
+
+#exclude entities with small n
+merged_filtered <- merged_table_long |>
+  filter(str_detect(diagnosis, "CLL") | str_detect(diagnosis, "MCL") |         str_detect(diagnosis, "AML") | str_detect(diagnosis, "B-ALL") |            str_detect(diagnosis, "T-ALL") | str_detect(diagnosis, "B-PLL")  |         str_detect(diagnosis, "T-PLL"))
+merged_filtered
+
+#create means for each disease
+df_aml <- merged_filtered |>
+  group_by(diagnosis, drug) |> 
+  summarize(mean = mean(viability),
+  std_dev = sd(viability)) |> 
+  filter (diagnosis == "AML")
+
+df_cll <- merged_filtered |>
+  group_by(diagnosis, drug) |> 
+  summarize(mean = mean(viability),
+  std_dev = sd(viability)) |> 
+  filter (diagnosis == "CLL")
+
+df_ball <- merged_filtered |>
+  group_by(diagnosis, drug) |> 
+  summarize(mean = mean(viability),
+  std_dev = sd(viability)) |> 
+  filter (diagnosis == "B-ALL")
+
+df_mcl <- merged_filtered |>
+  group_by(diagnosis, drug) |> 
+  summarize(mean = mean(viability),
+  std_dev = sd(viability)) |> 
+  filter (diagnosis == "MCL")
+  
+df_tall <- merged_filtered |>
+  group_by(diagnosis, drug) |> 
+  summarize(mean = mean(viability),
+  std_dev = sd(viability)) |> 
+  filter (diagnosis == "T-ALL") 
+  
+df_tpll <- merged_filtered |>
+  group_by(diagnosis, drug) |> 
+  summarize(mean = mean(viability),
+  std_dev = sd(viability)) |> 
+  filter (diagnosis == "T-PLL") 
+  
+df_bpll <- merged_filtered |>
+  group_by(diagnosis, drug) |> 
+  summarize(mean = mean(viability),
+  std_dev = sd(viability)) |> 
+  filter (diagnosis == "B-PLL")    
+
+#create heatmap
+z <- data.frame(cbind(df_aml$mean, df_cll$mean, df_ball$mean, df_mcl$mean, df_tall$mean, df_tpll$mean, df_bpll$mean))
+rownames(z) = df_aml$drug
+colnames(z) = c("AML", "CLL", "B-ALL", "MCL", "T-ALL", "T-PLL", "B-PLL")
+z <- as.matrix(t(z))
+
+set.seed(123)
+ha = rowAnnotation(foo = anno_text(rownames(z), gp = gpar(fontsize=8), just="right", offset=1))
+column_ha = HeatmapAnnotation(foo = anno_text(colnames(z), gp = gpar(fontsize=8), just = "left", offset =0))
+h2 <- Heatmap(z, name = "Mean viability", left_annotation = ha, 
+top_annotation = column_ha, 
+show_row_names = FALSE, show_column_names=FALSE, width = ncol(z)*unit(3, "mm"), height = nrow(z)*unit(4, "mm"), show_row_dend=TRUE, row_dend_side = "left", show_column_dend=FALSE,
+row_dend_width = unit(7, "mm"), heatmap_legend_param = list(title_gp = gpar(fontsize = 8, fontface = "bold"), labels_gp = gpar(fontsize = 8)))
+h2
+
+Fig3c2 <- grid.grabExpr(draw(h2, heatmap_legend_side = "right"))
+
+#extract order
+clustered_col_indices <- column_order(h2)
+clustered_col_names <- colnames(z)[clustered_col_indices]
+print(clustered_col_names)
+#clustered_row_indices <- row_order(h2)
+#clustered_row_names <- rownames(z)[clustered_row_indices]
+
+#add boxplots
+test1 <- bp_tbl <- merged_filtered |> 
+  group_by(drug, patientID, diagnosis) |> 
+  summarize(mean = mean(viability))
+ 
+#test1$diagnosis <- factor(test1$diagnosis, labels = clustered_col_names)
+test1$drug <- factor(test1$drug, labels = clustered_col_names)
+
+#color kinase inhibitors
+drugs <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/drugCategory_modified.csv", sep=";")
+
+drugs_kin <- drugs |> 
+  filter(Category == "Kinase")
+kinase_inh <- drugs_kin$drug  
+
+drugs_chemo <- drugs |> 
+  filter(Category == "Chemo")
+chemo <- drugs_chemo$drug 
+
+test1$drug_category <- "Other"
+test1$drug_category[test1$drug %in% kinase_inh] <- "Kinase inhibitor"
+test1$drug_category[test1$drug %in% chemo] <- "Chemotherapy"
+
+mycolors <- c("Chemotherapy" = "gray50", 
+                    "Kinase inhibitor" = "#6A3D9A", 
+                    "Other" = "#CAB2D6")
+
+#plot  
+p <- test1 |> 
+  ggplot(aes(x=drug, y=mean, color=drug_category))+ 
+  geom_boxplot(alpha=0.25, outlier.shape =NA) +
+geom_jitter(alpha=0.1, size=.2, width = 0.15)+
+scale_y_continuous(name ="Mean viability", breaks=seq(0,1.2, 0.2), limits=c(0,1.2)) +
+theme_classic() + 
+force_panelsizes(rows = unit(50, "mm"),cols = unit(189, "mm")) + 
+theme(text = element_text(color="black", size=8), axis.line = element_line(linewidth = 0.5), axis.text.x = element_text(color="black", size = 8, angle=90, vjust=0.5, hjust=1), axis.text.y = element_text(color="black", size= 8), legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), legend.key.size = unit(0.5, 'cm'))+
+scale_x_discrete(name="")+
+scale_color_manual(values=mycolors, name =  "Drug type")
+p
+
+Fig3c <- p + theme(axis.text = element_text(color="black", size = 8), plot.margin = margin(l=2.1, unit = "cm"))
