@@ -1,0 +1,14 @@
+library(patchwork)
+library(cowplot)
+
+line1 <- plot_grid(Fig2a,Fig2b, ncol=2, align = "h", rel_widths = c(1.25,1), labels=c("A", "C"), label_size=14)
+line2 <- plot_grid(Fig2c,Fig2d, ncol=2, labels=c("B","D"), label_size=14, rel_widths = c(6, 1))
+line3 <- plot_grid(Fig2e, ncol=1, labels=c("E"), label_size=14, rel_widths = c(1, 1))
+
+Fig2 <- plot_grid(line1,line2, NULL, line3, NULL, ncol=1, rel_heights = c(1,1,0.1,2,2)) & theme(plot.margin=margin(r=1,l=1,t=1,b=1,unit="cm"))
+Fig2
+
+#ggsave(file="~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/figures/Fig.2/Fig2.pdf", plot=Fig2, width=42, height=59.4, units = "cm")
+
+#ggsave(file="~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/figures/Fig.2/Fig2.png", plot=Fig2, width=42, height=59.4, units = "cm", dpi = 300)
+

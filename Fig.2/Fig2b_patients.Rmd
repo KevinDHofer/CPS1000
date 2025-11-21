@@ -1,0 +1,54 @@
+library(tidyverse)
+library(ggplot2)
+library(ggbreak)
+
+#import raw data
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+usedSamples_all_ic50 <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/usedSamples_all_ic50.csv", sep=";")
+
+# overview of diagnoses
+summary <- usedSamples_all |> 
+  group_by(diagnosis) |>
+  summarize(n=n())
+summary  
+
+# descending order  
+summary_descending <- arrange(summary, desc(n))
+summary_descending
+
+#filter missing diagnosis
+df <- usedSamples_all |> 
+  filter(diagnosis != "")
+df  
+
+#plotting diagnoses on a bar plot
+plot_diagnosis <- df |> 
+  ggplot(mapping = aes(x = forcats::fct_infreq(diagnosis)))
+plot_diagnosis + geom_bar()
+
+#add information on ic50 table
+df_ic50 <- usedSamples_all_ic50 |> 
+  filter(diagnosis != "")
+  
+df_ic50$screen <- df_ic50$screen |> 
+  str_replace("IC50", "IC50 + CPS1000") |>
+  as.factor()
+
+#plot  
+barplot <- df_ic50 |> 
+  ggplot(aes(x = forcats::fct_infreq(diagnosis)))
+  
+Fig2b <- barplot + geom_bar(aes(fill = screen)) + 
+geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size=2.5) +
+theme_classic() +
+scale_fill_brewer(palette = "Greens", direction =-1)+
+labs(y="Number of patients", x="", fill="Drug screen")+
+scale_y_continuous(expand = c(0.02,0), breaks=seq(0,300,50), limits = c(0,300))+
+scale_x_discrete(expand = c(0.04,0))+
+scale_y_break(c(120, 250), scales = 0.3, ticklabels = c(0,50,100, 150, 300), expand = c(0.01,0))+
+theme(axis.text.x = element_text(color="black", angle = 45, hjust=1, vjust=1, size=8), axis.text.y = element_text(color="black", size=8), legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.line = element_line(size = 0.5), axis.title.y = element_text(size=8), axis.text.y.right = element_blank(),
+        axis.ticks.y.right = element_blank(),
+        axis.line.y.right = element_blank(), legend.key.size = unit(0.5, 'cm'), plot.margin=margin(r=1,t=1,l=1,unit="cm"))
+
+Fig2b
