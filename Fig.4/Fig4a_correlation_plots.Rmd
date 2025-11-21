@@ -1,0 +1,243 @@
+library("corrplot")
+library(tidyverse)
+library(dplyr)
+library(RColorBrewer)
+library(gridExtra)
+library(gridGraphics)
+library(grid)
+library(draw)
+library(cowplot)
+
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#create means
+means <- merged_table_long |> 
+  group_by(patientID, drug, diagnosis) |> 
+  summarize(mean(viability))
+means
+
+#filter for diagnosis
+means_diag <- means |>
+  filter(str_detect(diagnosis, "CLL")) 
+
+#back to wide format  
+df_wide <- pivot_wider(means_diag, names_from = drug, values_from = "mean(viability)")
+df_wide
+
+#normalize
+df_wide <- scale(df_wide[3:length(df_wide)])
+
+#calculate correlations
+corr <- round(cor(df_wide), 2)
+head(corr)
+
+#plot correlation heatmap
+library(RColorBrewer)
+col2 = colorRampPalette(brewer.pal(11, 'Spectral'))(20)
+corrplot(corr, type="lower", order="hclust", method="color", col = col2, sig.level = 0.05, insig = "blank",  tl.col="black", tl.cex = 0.45, tl.offset = 0.4, cl.ratio = 0.1, title=unique(means_diag$diagnosis))
+
+# Custom color palette where correlations between -0.2 and 0.2 are white
+custom_palette <- colorRampPalette(c(
+  colorRampPalette(brewer.pal(9, "Spectral")[1:4])(7),  # For correlations below -0.2
+  rep("white", 6),  # For correlations between -0.2 and 0.2
+  colorRampPalette(brewer.pal(9, "Spectral")[6:9])(7)     # For correlations above 0.2
+))
+
+corrplot(corr, type="lower", order="hclust", method="color", 
+         col = custom_palette(20), sig.level = 0.05, 
+         insig = "blank", tl.col="black", tl.cex = 0.5, tl.pos = "ld",
+         tl.offset = c(0.3), cl.ratio = 0.1, title=unique(means_diag$diagnosis), cex.main = 0.75, col.main = "black", mar = c(0,0,1,0))
+         
+#add colors for pathways (names not correct!)
+all_labels <- colnames(corr)
+highlight_hsp <- c("AMI.1", "AZD1208") # verify order
+highlight_bcr <- c("BMS.509744", "Ceritinib", "Cisplatin", "Cobimetinib")
+highlight_pi3k <- c("BGJ398", "BML.277")
+highlight_aktmtor <- c("A.1210477", "A.674563", "Fludarabine", "Ganetespib")
+highlight_mapk <- c("Cytarabine", "D4476", "Dabrafenib")
+
+label_colors <- setNames(rep("black", length(all_labels)), all_labels)
+label_colors[highlight_hsp] <- "#BEBADA"
+label_colors[highlight_bcr] <- "#80B1D3"
+label_colors[highlight_pi3k] <- "#FB8072"
+label_colors[highlight_aktmtor] <- "#BC80BD"
+label_colors[highlight_mapk] <- "#FDB462"
+
+cll <- corrplot(corr, type="lower", order="hclust", method="color", 
+         col = custom_palette(20), sig.level = 0.05, addgrid.col = "grey",
+         insig = "blank", tl.col = label_colors, tl.cex = 0.7, tl.pos = "ld",
+         tl.offset = c(0.3), cl.ratio = 0.1, title=unique(means_diag$diagnosis), cex.main = 0.75, col.main = "black", mar = c(0,0,0.5,0), cl.cex = 0.7, cl.col = "grey")
+  
+#prepare for multipanel figure
+cll
+grid.echo()
+P2 <- grid.grab()
+grid.draw(P2)
+
+#P2
+# save correlation matrix colors to a vector, then make coloured matrix grob transparent
+matrix.colors2 <- getGrob(P2, gPath("square"), grep = TRUE)[["gp"]][["fill"]]
+P2 <- editGrob(P2,
+               gPath("square"), grep = TRUE,
+               gp = gpar(col = NA,
+                         fill = NA))
+
+# apply the saved colours to the underlying matrix grob
+P2 <- editGrob(P2,
+               gPath("symbols-rect-1"), grep = TRUE,
+               gp = gpar(fill = matrix.colors2))
+
+# convert the background fill from white to transparent, while we are at it
+P2 <- editGrob(P2,
+               gPath("background"), grep = TRUE,
+               gp = gpar(fill = NA))               
+               
+
+###
+
+#create comparator: AML
+means_diag <- means |>
+  filter(diagnosis  %in% c("AML")) 
+
+#back to wide format  
+df_wide <- pivot_wider(means_diag, names_from = drug, values_from = "mean(viability)")
+df_wide
+
+#normalize
+df_wide <- scale(df_wide[3:length(df_wide)])
+
+#calculate correlations
+corr <- round(cor(df_wide), 2)
+head(corr)
+
+#plot correlation heatmap
+library(RColorBrewer)
+col2 = colorRampPalette(brewer.pal(11, 'Spectral'))(20)
+corrplot(corr, type="lower", order="hclust", method="color", col = col2, sig.level = 0.05, insig = "blank",  tl.col="black", tl.cex = 0.45, tl.offset = 0.4, cl.ratio = 0.1, title=unique(means_diag$diagnosis))
+
+# Custom color palette where correlations between -0.2 and 0.2 are white
+custom_palette <- colorRampPalette(c(
+  colorRampPalette(brewer.pal(9, "Spectral")[1:4])(7),  # For correlations below -0.2
+  rep("white", 6),  # For correlations between -0.2 and 0.2
+  colorRampPalette(brewer.pal(9, "Spectral")[6:9])(7)     # For correlations above 0.2
+))
+
+corrplot(corr, type="lower", order="hclust", method="color", 
+         col = custom_palette(20), sig.level = 0.05, 
+         insig = "blank", tl.col="black", tl.cex = 0.5, tl.pos = "ld",
+         tl.offset = c(0.3), cl.ratio = 0.1, title=unique(means_diag$diagnosis), cex.main = 0.75, col.main = "black", mar = c(0,0,1,0)) 
+
+#add colors for pathways (names not correct!)
+all_labels <- colnames(corr)
+highlight_hsp <- c("Onalespib", "PF.3758309") # verify order
+highlight_bcr <- c("KU.55933", "MI.503", "MK.2206", "Menin.MLL.Inhibitor")
+highlight_pi3k <- c("SCH772984", "SGC.0946")
+highlight_aktmtor <- c("Selisistat", "Sunitinib","Afatinib", "X10058.F4")
+highlight_mapk <- c("PRT062607", "Palbociclib", "Panobinostat")
+
+label_colors <- setNames(rep("black", length(all_labels)), all_labels)
+label_colors[highlight_hsp] <- "#BEBADA"
+label_colors[highlight_bcr] <- "#80B1D3"
+label_colors[highlight_pi3k] <- "#FB8072"
+label_colors[highlight_aktmtor] <- "#BC80BD"
+label_colors[highlight_mapk] <- "#FDB462"
+
+aml <- corrplot(corr, type="lower", order="hclust", method="color", 
+         col = custom_palette(20), sig.level = 0.05, addgrid.col = "grey", 
+         insig = "blank", tl.col = label_colors, tl.cex = 0.7, tl.pos = NULL,
+         tl.offset = c(0.3), title=unique(means_diag$diagnosis), cex.main = 0.75, col.main = "black", mar = c(0,0,0.5,0), cl.ratio = 0.1, , cl.cex = 0.7, cl.col = "grey")
+
+#prepare for multipanel figure
+aml
+grid.echo()
+P1 <- grid.grab()
+grid.draw(P1)
+
+#P1
+# save correlation matrix colors to a vector, then make coloured matrix grob transparent
+matrix.colors1 <- getGrob(P1, gPath("square"), grep = TRUE)[["gp"]][["fill"]]
+P1 <- editGrob(P1,
+               gPath("square"), grep = TRUE,
+               gp = gpar(col = NA,
+                         fill = NA))
+
+# apply the saved colours to the underlying matrix grob
+P1 <- editGrob(P1,
+               gPath("symbols-rect-1"), grep = TRUE,
+               gp = gpar(fill = matrix.colors1))
+
+# convert the background fill from white to transparent, while we are at it
+P1 <- editGrob(P1,
+               gPath("background"), grep = TRUE,
+               gp = gpar(fill = NA))
+
+
+## create a separate legend for pathways
+library("ggplot2") 
+library("grid") 
+library("gridExtra") 
+library("cowplot")
+
+drugCategory_modified <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/drugCategory_modified.csv", sep=";")
+
+drugCategory_modified$Pathway_mod
+
+# Create data for the legend
+df <- data.frame(drug = drugCategory_modified$drug, pathway = drugCategory_modified$Pathway_mod, random_value = seq(1,63,1))
+
+df <- df |> 
+  filter(pathway %in% c("AKT/mTOR", "MAPK" , "B-cell receptor", "PI3K", "Stress pathway"))
+  
+#rename MAPK
+df$pathway[df$pathway=="MAPK"] <- "MEK/ERK"
+
+annotation_colors <- setNames(c("lightgrey", "#BC80BD", "#FCCDE5", "#B3DE69", "#FDB462", "#80B1D3", "#FB8072", "#BEBADA", "#FFFFB3", "#8DD3C7"), c("other", "AKT/mTOR", "DNA damage response", "Chemotherapy" ,  "MEK/ERK" , "B-cell receptor", "PI3K", "Stress pathway", "Bromodomain/PLK", "JAK/STAT"))
+
+# Create the legend plot
+p <- ggplot(df, aes(x = drug, y = random_value, fill = pathway)) +
+  geom_tile() +
+  scale_fill_manual(values = annotation_colors) +
+  labs(fill = "Pathway") +
+  theme_minimal() +
+  theme(
+  legend.title = element_text(size=8, face="bold"), 
+  legend.text=element_text(size=8), legend.key.size = unit(0.3, 'cm'),
+  legend.direction="vertical")+
+  guides(fill = guide_legend(
+    title.position="top", 
+    title.hjust = 0,
+    override.aes = list(shape = 1)))
+  
+legend <- get_legend(p)  
+  
+#plot together
+fig_corrplot <- grid.arrange(P1, P2, ncol = 2)
+fig_corrplot
+
+Fig4a <- plot_grid(P2, P1, ncol = 2, nrow = 1, align = "h", scale=1, rel_heights = c(1, 1), 
+greedy = TRUE)+
+          draw_plot(legend, x=0.82, y=0.4, height=0.25, width=0.25)+
+          theme(plot.margin = margin(t=1, unit = "cm"))
+Fig4a

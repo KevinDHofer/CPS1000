@@ -1,0 +1,214 @@
+library("corrplot")
+library(tidyverse)
+library(dplyr)
+library(gridExtra)
+library(patchwork)
+
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+theme_set(theme_classic() + theme(text = element_text(color="black", size=8), 
+axis.line = element_line(size = 0.5)))
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  select (patientID, diagnosis) 
+diseases
+
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#create means
+means <- merged_table_long |> 
+  group_by(patientID, drug, diagnosis) |> 
+  summarize(mean(viability))
+means
+
+#filter for CLL
+means_cll <- means |>
+  filter(str_detect(diagnosis, "CLL")) 
+
+#back to wide format  
+df_means <- pivot_wider(means_cll, names_from = drug, values_from = "mean(viability)")
+df_means
+
+#selection of drugs: sch_cobi
+sch_cobi <- df_means |> select(patientID, SCH772984, Cobimetinib)
+sch_cobi <- as.data.frame(sch_cobi[, 2:3])
+
+#regression
+reg3 <- lm(Cobimetinib ~ SCH772984, sch_cobi)
+correlation <- cor(sch_cobi$SCH772984, sch_cobi$Cobimetinib)
+
+#plot 
+p1 <- sch_cobi |> ggplot(aes(x=SCH772984, y=Cobimetinib)) + geom_point(color="#B2DF8A", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)
+  
+#selection of drugs: ibr_cobi
+ibr_cobi <- df_means |> select(patientID, Ibrutinib, Cobimetinib)
+ibr_cobi <- as.data.frame(ibr_cobi[, 2:3])
+
+#regression
+reg2 <- lm(Ibrutinib ~ Cobimetinib, ibr_cobi)
+correlation2 <- cor(ibr_cobi$Ibrutinib, ibr_cobi$Cobimetinib)
+
+#plot 
+p2 <- ibr_cobi |> ggplot(aes(x=Cobimetinib, y=Ibrutinib)) + geom_point(color="#B2DF8A", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation2, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)  
+  
+#selection of drugs:ibr_ide
+ibr_ide <- df_means |> select(patientID, Ibrutinib, Idelalisib)
+ibr_ide <- as.data.frame(ibr_ide[, 2:3])
+
+#regression
+reg1 <- lm(Ibrutinib ~ Cobimetinib, ibr_cobi)
+correlation1 <- cor(ibr_ide$Ibrutinib, ibr_ide$Idelalisib)
+
+#plot 
+p3 <- ibr_ide |> ggplot(aes(x=Idelalisib, y=Ibrutinib)) + geom_point(color="#B2DF8A", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation1, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)
+
+#selection of drugs:rapa_ide
+rapa_ide <- df_means |> select(patientID, Rapamycin, Idelalisib)
+rapa_ide <- as.data.frame(rapa_ide[, 2:3])
+
+#regression
+reg1 <- lm(Rapamycin ~ Idelalisib, rapa_ide)
+correlation1 <- cor(rapa_ide$Rapamycin, rapa_ide$Idelalisib)
+
+#plot 
+p4 <- rapa_ide |> ggplot(aes(x=Idelalisib, y=Rapamycin)) + geom_point(color="#B2DF8A", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation1, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)
+
+l1 <- grid.arrange(p1,p2, p3,p4, ncol=4)
+
+## similar for AML
+
+#filter for AML
+means_aml <- means |>
+  filter(str_detect(diagnosis, "AML")) 
+
+#back to wide format  
+df_means_aml <- pivot_wider(means_aml, names_from = drug, values_from = "mean(viability)")
+df_means_aml
+
+#selection of drugs: sch_cobi
+sch_cobi_aml <- df_means_aml |> select(patientID, SCH772984, Cobimetinib)
+sch_cobi_aml <- as.data.frame(sch_cobi_aml[, 2:3])
+
+#regression
+reg4 <- lm(Cobimetinib ~ SCH772984, sch_cobi_aml)
+correlation <- cor(sch_cobi_aml$SCH772984, sch_cobi_aml$Cobimetinib)
+
+#plot 
+p5 <- sch_cobi_aml |> ggplot(aes(x=SCH772984, y=Cobimetinib)) + geom_point(color="#E31A1C", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)
+  
+#selection of drugs: ibr_cobi
+ibr_cobi_aml <- df_means_aml |> select(patientID, Ibrutinib, Cobimetinib)
+ibr_cobi_aml <- as.data.frame(ibr_cobi_aml[, 2:3])
+
+#regression
+reg5 <- lm(Ibrutinib ~ Cobimetinib, ibr_cobi_aml)
+correlation2 <- cor(ibr_cobi_aml$Ibrutinib, ibr_cobi_aml$Cobimetinib)
+
+#plot 
+p6 <- ibr_cobi_aml |> ggplot(aes(x=Cobimetinib, y=Ibrutinib)) + geom_point(color="#E31A1C", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation2, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)
+
+#selection of drugs:ibr_ide
+ibr_ide_aml <- df_means_aml |> select(patientID, Ibrutinib, Idelalisib)
+ibr_ide_aml <- as.data.frame(ibr_ide_aml[, 2:3])
+
+#regression
+reg6 <- lm(Ibrutinib ~ Idelalisib, ibr_ide_aml)
+correlation3 <- cor(ibr_ide_aml$Ibrutinib, ibr_ide_aml$Idelalisib)
+
+#plot 
+p7 <- ibr_ide_aml |> ggplot(aes(x=Idelalisib, y=Ibrutinib)) + geom_point(color="#E31A1C", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation3, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)
+p7
+
+#selection of drugs:rapa_ide
+rapa_ide_aml <- df_means_aml |> select(patientID, Rapamycin, Idelalisib)
+rapa_ide_aml <- as.data.frame(rapa_ide_aml[, 2:3])
+
+#regression
+reg7 <- lm(Rapamycin ~ Idelalisib, rapa_ide_aml)
+correlation4 <- cor(rapa_ide_aml$Rapamycin, rapa_ide_aml$Idelalisib)
+
+#plot 
+p8 <- rapa_ide_aml |> ggplot(aes(x=Idelalisib, y=Rapamycin)) + geom_point(color="#E31A1C", alpha=0.5) +
+geom_smooth(
+    method = "lm",    # Use linear model
+    se = TRUE,        # Show standard error (confidence interval)
+    level = 0.95,     # 95% confidence interval
+    color = "black",    # Color of the regression line
+    fill = "lightgrey" # Color of the confidence interval
+  ) + annotate("text", x=0.8, y=1.2, label = paste("R2 =", round(correlation4, 2))) + theme_classic() + xlim(0.4,1.2) + ylim(0.4,1.2)
+p8
+
+p1|p3|p2|p4 
+p5|p7|p6|p8 
+
+Fig4c <- p1+p5 + theme(plot.margin = unit(c(0,30,0,0), "pt")) +
+p3+p7 + theme(plot.margin = unit(c(0,30,0,0), "pt")) +
+p2+p6 + theme(plot.margin = unit(c(0,30,0,0), "pt")) +
+p4+p8 + plot_layout(ncol = 8) + theme(plot.margin = margin(t=1, unit = "cm"))
+
+Fig4c
