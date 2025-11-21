@@ -1,0 +1,707 @@
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(patchwork)
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(plotrix)
+library(drc)
+library(scales)
+library(corrplot)
+library(leaps)
+library(glmnet)
+library(tidyverse)
+library(ggplot2)
+library(dendextend)
+library(stats)
+
+#load tables
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+  
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+  
+ORR_CLL <- read_excel("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/clinical_responses_AML_CLL_20250707.xlsx", sheet = "CLL") 
+
+ORR_CLL <- ORR_CLL[,1:7]
+
+ORR_AML <- read_excel("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/clinical_responses_AML_CLL_20250707.xlsx", sheet = "AML")
+
+ORR_AML <- ORR_AML[,1:7]
+  
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+  
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+  
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long <- merged_table_long |> 
+  mutate(conc_level=rep(seq(1,5), times=nrow(merged_table_long)/5)) 
+  
+#remove empty diagnosis  |> 
+merged_table_long <- merged_table_long |> 
+  dplyr::filter(diagnosis != "")
+
+#add concentration values for each drug, log-transform
+#select drugs with concentration A (plates 1 to 4)
+groupA <- merged_table_long |> 
+  dplyr::filter(drug %in% c("Cisplatin", "Imatinib", "A.1210477", "Nutlin.3a", 
+                            "RO5963", "TW.37", "AZD1208", "Fludarabine", 
+                            "Methotrexate", "OTX015", "Sunitinib", "Volasertib", 
+                            "BGJ398", "Afatinib", "Cytarabine", "IRAK1.4.Inhibitor.I", 
+                            "Olaparib", "Selisistat", "Vismodegib", "BML.277", 
+                            "Foretinib", "MI.503", "Palbociclib", "Tozasertib"))                     
+
+concentration_A <- rep(c(10, 2, 0.4, 0.08, 0.016), times = 10920)
+
+df_A <- cbind(groupA, concentration_A) |> 
+  dplyr::rename(concentration = concentration_A)
+df_A
+
+#select drugs with concentration B (plate 1 to 4)
+groupB <- merged_table_long |> 
+  dplyr::filter(drug %in% c("A.674563", "BMS.509744", "Dabrafenib", "Ganetespib", 
+                            "KU.55933", "Motolimod", "PF.3758309", "Ruxolitinib", 
+                            "SGC.0946", "AZD6738", "Cobimetinib", "Duvelisib", 
+                            "Idelalisib", "Midostaurin", "Quizartinib", "SCH772984", 
+                            "Trametinib", "AMI.1", "Ceritinib", "Dasatinib", 
+                            "Ibrutinib", "Menin.MLL.Inhibitor", "Onalespib", 
+                            "PRT062607", "SB.203580", "Tofacitinib", "EPZ.6438", 
+                            "JNK.IN.8", "MK.2206", "ONO.4059", "Rapamycin", 
+                            "X10058.F4", "AZD8055", "D4476", "Selinexor", "ZM.336372"))                 
+  
+concentration_B <- rep(c(2, 0.4, 0.08, 0.016, 0.0032), times = 16380)
+
+df_B <- cbind(groupB, concentration_B)  |> 
+  dplyr::rename(concentration = concentration_B)
+df_B
+
+#select drugs with concentration C (plates 1 to 4)
+groupC <- merged_table_long |> 
+  dplyr::filter(drug %in% c("Panobinostat", "Venetoclax", "Doxorubicine"))
+  
+concentration_C <- rep(c(0.4, 0.08, 0.016, 0.0032, 0.00064), times = 1365)
+
+df_C <- cbind(groupC, concentration_C)  |> 
+  dplyr::rename(concentration = concentration_C)
+df_C
+
+#combine all tables
+df_all <- rbind(df_A, df_B, df_C)
+
+#cap supravital viability results (cut-off <1.2)
+df_all$viability[df_all$viability >1.2] <-1.2
+
+# only select diseases with at least five cases
+diagSelected <- c("CLL", "AML", "B-ALL", "T-ALL", "B-PLL", "T-PLL", "MCL")
+
+#create means
+viabTab.mean <- merged_table_long |> 
+  dplyr::filter(diagnosis %in% diagSelected) |> 
+  group_by(patientID, diagnosis, drug) |> 
+    summarize(viab = mean(viability))
+    
+##CLL and non-CLL 
+viabTab.mean.cll <- viabTab.mean |> 
+  mutate(diagnosis = ifelse(diagnosis == "CLL", diagnosis, "non-CLL"))
+unique(viabTab.mean.cll$diagnosis)
+
+##AML and non-AML 
+viabTab.mean.aml <- viabTab.mean |> 
+  mutate(diagnosis = ifelse(diagnosis == "AML", diagnosis, "non-AML"))
+unique(viabTab.mean.aml$diagnosis)
+
+#create p-values
+tTest <- function(val, fac) {
+  res <- t.test(val ~ fac, var.equal = TRUE)
+  data.frame(p = res$p.value, 
+             mean1 = res$estimate[[1]],
+             mean2 = res$estimate[[2]],
+             diff = res$estimate[[2]] - res$estimate[[1]])
+}
+
+#CLL
+allDiag.cll <- unique(viabTab.mean.cll$diagnosis)
+pTabAll.cll <- lapply(allDiag.cll, function(diagBase) {
+  #calculate p value matrix
+  pTab <- lapply(allDiag.cll[allDiag.cll != diagBase], function(diagCompare) {
+    testTab <- dplyr::filter(viabTab.mean.cll, diagnosis %in% c(diagBase, diagCompare)) %>%
+      mutate(diagnosis = factor(diagnosis, levels = c(diagBase,diagCompare))) 
+    res <- group_by(testTab, drug) %>% do(tTest(.$viab, .$diagnosis)) %>%
+      mutate(diagCompare = diagCompare, diagBase = diagBase)
+    res
+  }) %>% bind_rows() %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "BH"))
+}) %>% bind_rows()
+
+#AML
+allDiag.aml <- unique(viabTab.mean.aml$diagnosis)
+pTabAll.aml <- lapply(allDiag.aml, function(diagBase) {
+  #calculate p value matrix
+  pTab <- lapply(allDiag.aml[allDiag.aml != diagBase], function(diagCompare) {
+    testTab <- dplyr::filter(viabTab.mean.aml, diagnosis %in% c(diagBase, diagCompare)) %>%
+      mutate(diagnosis = factor(diagnosis, levels = c(diagBase,diagCompare))) 
+    res <- group_by(testTab, drug) %>% do(tTest(.$viab, .$diagnosis)) %>%
+      mutate(diagCompare = diagCompare, diagBase = diagBase)
+    res
+  }) %>% bind_rows() %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "BH"))
+}) %>% bind_rows()
+
+#prepare data table for plot 
+plotTab.cll <- pTabAll.cll %>% 
+#mutate(p = ifelse(p < 1e-12, 1e-12, p)) %>%
+  mutate(pSign = -log10(p)*sign(diff)) %>%
+#mutate(pSign = ifelse(p.adj < 0.1, pSign, 0)) %>%
+  ungroup()
+  
+plotTab.aml <- pTabAll.aml %>% 
+#mutate(p = ifelse(p < 1e-12, 1e-12, p)) %>%
+  mutate(pSign = -log10(p)*sign(diff)) %>%
+#mutate(pSign = ifelse(p.adj < 0.1, pSign, 0)) %>%
+  ungroup()  
+  
+#filter for CLL-AML
+plotTab.cll <- plotTab.cll |>  dplyr::filter(diagBase == "CLL")
+plotTab.aml <- plotTab.aml |>  dplyr::filter(diagBase == "AML")
+
+#filter for drugs with clinical data
+ORR_CLL <- ORR_CLL |> 
+  dplyr::rename(ORR = "ORR%", CR = "CR%") |> 
+  dplyr::filter(ORR != "NA")
+ORR_CLL$ORR <- as.numeric(ORR_CLL$ORR)
+ORR_CLL$CR <- as.numeric(ORR_CLL$CR) 
+  
+ORR_AML <- ORR_AML |> 
+  dplyr::rename(ORR = "ORR%", CR = "CR%") |> 
+  dplyr::filter(ORR != "NA")
+ORR_AML$ORR <- as.numeric(ORR_AML$ORR)
+ORR_AML$CR <- as.numeric(ORR_AML$CR)  
+
+drug_list <- unique(c(ORR_CLL$drug, ORR_AML$drug))
+
+# Fit sigmoid curve for each drug and each sample
+sumData <- df_all |> 
+  group_by(patientID, drug, concentration) %>%
+  summarise(viab = mean(viability)) |> 
+  dplyr::rename(Drug = drug, conc = concentration)
+
+testF <- function(m0, m1) {
+  Fstat <- ((sum(residuals(m0)^2) - sum(residuals(m1)^2))/(m0$df.residual-m1$df.residual))/(sum(residuals(m1)^2)/m1$df.residual)
+  1 - pf(Fstat, m0$df.residual-m1$df.residual, m1$df.residual)
+}
+
+calcAUC <- function(m1, minConc =0, maxConc=15, n=100) {
+  concSeq <- data.frame(conc = seq(minConc, maxConc, length.out = n))
+  valueConc <- data.frame(viab = predict(m1, concSeq),
+                          conc = concSeq[,1])
+  valueConc <- valueConc[order(valueConc$conc),]
+  areaTotal <- 0
+  for (i in seq(nrow(valueConc)-1)) {
+    areaEach <- (valueConc$viab[i] + valueConc$viab[i+1])*(valueConc$conc[i+1]-valueConc$conc[i])*0.5
+    areaTotal <- areaTotal + areaEach
+  }
+  areaTotal/(valueConc[nrow(valueConc),]$conc-valueConc[1,]$conc)
+}
+
+calcParm <- function(df_input) {
+  df <- as.data.frame(df_input)
+  df$conc <- as.numeric(df$conc)
+  df$viab <- as.numeric(df$viab)
+
+  formula_obj <- viab ~ conc
+
+  out <- tryCatch({
+    m1 <- eval(substitute(
+      drm(formula_obj,
+          data = df,
+          fct = LL2.3u(),
+          robust = "tukey",
+          lowerl = c(0, 0, NA),
+          upperl = c(4, 1, NA)),
+      list(formula_obj = formula_obj, df = df)
+    ))
+
+    fitRes <- m1$coefficients
+    m0 <- lm(viab ~ 1, data = df)
+    pred_vals <- predict(m1)
+    r2 <- cor(pred_vals, df$viab, use = "pairwise.complete.obs")^2
+    auc <- calcAUC(m1)
+
+    tibble(
+      HS = fitRes[[1]],
+      Einf = fitRes[[2]],
+      IC50 = fitRes[[3]],
+      pF = testF(m0, m1),
+      R2 = r2,
+      AUC = auc
+    )
+  }, error = function(e) {
+    message("Fit failed for a group: ", e$message)
+    tibble(
+      HS = NA_real_,
+      Einf = NA_real_,
+      IC50 = NA_real_,
+      pF = NA_real_,
+      R2 = NA_real_,
+      AUC = NA_real_
+    )
+  })
+
+  return(out)
+}
+
+ic50Tab <- sumData %>%
+  group_by(patientID, Drug) %>% nest() %>%
+  mutate(mm = map(data, calcParm)) %>%
+  unnest(mm) %>%
+  dplyr::select(-data) %>% ungroup()
+#save(ic50Tab, file = "ic50Tab.RData")
+  
+#add AUC values
+load("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/ic50Tab.RData")
+aucTab <- group_by(df_all, diagnosis, patientID, drug) %>%
+  summarise(meanViab = mean(viability, na.rm = TRUE)) |> 
+  dplyr::rename(Drug = drug)
+ic50Tab <- left_join(ic50Tab, aucTab, by = c("patientID", "Drug")) %>%
+  mutate(IC50 = exp(1)^IC50,
+         pIC50 = -log10(IC50))
+         
+#Distribution of parameters 
+plotTab <- ic50Tab %>% dplyr::select(HS, Einf, pF, R2, AUC, meanViab) %>%
+  pivot_longer(everything(),names_to = "parameter", values_to = "value") %>%
+  dplyr::filter(!is.na(value)) 
+ggplot(plotTab, aes(x=value)) +
+  geom_histogram(bins = 500) +
+  facet_wrap(~parameter, scales = "free")    
+  
+#filter
+ic50Tab <- mutate(ic50Tab, response =  HS > 0.25 &  pF < 0.01 &  Einf < 1) %>%
+  mutate(group = case_when(
+    is.na(response) ~ "failed",
+    !response ~ "no response",
+    response & R2 < 0.6 ~ "non-determined",
+    TRUE ~ "response"
+  ))  
+  
+#Distribution of parameters after filtering
+ic50Tab.sig <- dplyr::filter(ic50Tab, group == "response")
+
+plotTab <- ic50Tab.sig %>% dplyr::select(HS, Einf, pF, R2, AUC, pIC50, meanViab) %>%
+  pivot_longer(everything(),names_to = "parameter", values_to = "value") %>%
+  dplyr::filter(!is.na(value)) 
+ggplot(plotTab, aes(x=value)) +
+  geom_histogram(bins = 100) +
+  facet_wrap(~parameter, scales = "free")  
+  
+#Compare the distribution of sucessful fit
+sumGroup <- group_by(ic50Tab, Drug, group) %>%
+  summarise(n = length(patientID))
+sumResGroup <- dplyr::filter(sumGroup, group == "response") %>% 
+  arrange(n)
+  
+fit_color <- setNames(c("blue", "red", "grey"), c("response", "no response", "failed"))  
+
+#successful fit in CLL
+sumGroup_cll <- ic50Tab   |> 
+  filter(diagnosis %in% c("CLL")) |> 
+  group_by(Drug, group) %>%
+  summarise(n = length(patientID)) 
+drug_list_response <- sumGroup_cll |> 
+  filter(group == "failed") |> 
+  group_by(Drug) |> 
+  arrange(desc(n)) |> 
+  pull(Drug)
+sumGroup_cll$Drug <- factor(sumGroup_cll$Drug, levels = drug_list_response)
+
+fit1 <- sumGroup_cll |> 
+filter(!is.na(Drug)) |> 
+ggplot(aes(y=Drug, x = n, fill = group)) + geom_bar(stat = "identity", alpha=0.8)+
+theme_classic()+
+    labs(title = "CLL", x = "Number of samples", y = "", fill="Dose-response curve")+
+    theme(axis.text = element_text(color="black", size=8),
+legend.position = "none", axis.line = element_line(linewidth = 0.5), axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+scale_fill_manual(values=fit_color)
+
+#successful fit in AML
+sumGroup_aml <- ic50Tab   |> 
+  filter(diagnosis %in% c("AML")) |> 
+  group_by(Drug, group) %>%
+  summarise(n = length(patientID)) 
+drug_list_response <- sumGroup_aml |> 
+  filter(group == "failed") |> 
+  group_by(Drug) |> 
+  arrange(desc(n)) |> 
+  pull(Drug)
+sumGroup_aml$Drug <- factor(sumGroup_aml$Drug, levels = drug_list_response)
+
+fit2 <- sumGroup_aml |> 
+filter(!is.na(Drug)) |> 
+ggplot(aes(y=Drug, x = n, fill = group)) + geom_bar(stat = "identity", alpha=0.8)+
+theme_classic()+
+    labs(title = "AML", x = "Number of samples", y = "", fill="Dose-response curve")+
+    theme(axis.text = element_text(color="black", size=8),
+legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.line = element_line(linewidth = 0.5), axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+scale_fill_manual(values=fit_color)
+
+FigS11a <- fit1+fit2
+FigS11a
+
+# Compare AUC with mean viability
+## All drugs together
+plotTab <- ic50Tab %>% mutate(AUC= ifelse(is.na(AUC),1,AUC))
+plotTab |> 
+#filter(group == "response") |> 
+ggplot(aes(x=AUC,y=meanViab)) + geom_point(aes(col = group), alpha=0.25) +
+  geom_smooth(method = "lm", se=FALSE) +
+  theme_bw() +
+  ylab("mean viability") +xlab("AUC under sigmoid curve")
+
+## Compare AUC with mean viability for each drug
+pList <- lapply(unique(ic50Tab$Drug), function(dd) {
+  plotTab <- dplyr::filter(ic50Tab, Drug == dd) %>%
+    mutate(AUC = ifelse(is.na(AUC),1,AUC))
+  ggplot(plotTab, aes(x=meanViab,y=AUC)) + geom_point(aes(col = group)) +
+    theme_bw() + xlab("mean viability") + ylab("AUC under sigmod curve") +
+    ggtitle(dd)
+})
+
+#jyluMisc::makepdf(pList, "mean_vs_AUC_compare.pdf", ncol=3, nrow=3, width = 12, height = 10)
+
+#plot failed by drug
+ic50Tab |> 
+    dplyr::filter(group == "failed") |> 
+    ggplot(aes(x=Drug))+ 
+    geom_bar()+
+    coord_flip()
+  
+#calculate disease-specific and overall median and coeff. of variation of all parameters
+param_list <- colnames(ic50Tab[,3:10])
+
+#remove HS=4
+#ic50Tab <- ic50Tab |>
+#  filter(HS!= 4)
+
+
+#disease_specific parameters: use means
+ic50Tab_disease <- ic50Tab |>
+    dplyr::filter(group != "failed") |> 
+    group_by(diagnosis, Drug) |> 
+    summarize(
+        HS_mean = mean(HS, na.rm = TRUE), HS_sd = sd(HS, na.rm = TRUE),
+        Einf_mean = mean(Einf, na.rm = TRUE), Einf_sd = sd(Einf, na.rm = TRUE),
+        pIC50_mean = mean(pIC50, na.rm = TRUE), pIC50_sd = sd(pIC50, na.rm = TRUE),
+        pF_mean = mean(pF, na.rm = TRUE), pF_sd = sd(pF, na.rm = TRUE),
+        R2_mean = mean(R2, na.rm = TRUE), R2_sd = sd(R2, na.rm = TRUE),
+        AUC_mean = mean(AUC, na.rm = TRUE), AUC_sd = sd(AUC, na.rm = TRUE),
+        viab_mean = mean(meanViab, na.rm = TRUE), viab_sd = sd(meanViab, na.rm = TRUE)
+    )
+
+#merge response data with disease-specific coefficients for AML and CLL
+CLL_df <- ic50Tab_disease |> 
+  dplyr::filter(diagnosis == "CLL") |> 
+  merge(plotTab.cll, by.x="Drug", by.y="drug") |> 
+  merge(ORR_CLL, by.x="Drug", by.y="drug")
+
+AML_df <- ic50Tab_disease |> 
+  dplyr::filter(diagnosis == "AML") |> 
+  merge(plotTab.aml, by.x="Drug", by.y="drug") |> 
+  merge(ORR_AML, by.x="Drug", by.y="drug")  
+  
+#load drug class
+category <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/drugCategory_modified.csv", sep=";") |> dplyr::select(drug, Category)
+
+CLL_df <- merge(CLL_df, category, by.x="Drug", by.y="drug")
+CLL_df$Category <- factor(CLL_df$Category, levels=unique(CLL_df$Category))
+
+AML_df <- merge(AML_df, category, by.x="Drug", by.y="drug")
+AML_df$Category <- factor(AML_df$Category, levels=unique(AML_df$Category))
+
+mycolors <- c("Chemo" = "gray50", 
+                    "Kinase" = "#6A3D9A", 
+                    "Other" = "#CAB2D6")
+
+#plots
+library(ggpmisc)
+library(patchwork)
+
+#Mean viab vs ORR
+CLL_df$nr_pat <- as.numeric(CLL_df$nr_pat)
+AML_df$nr_pat <- as.numeric(AML_df$nr_pat)
+
+#adjust:create the filtered dataset and fit the model
+filtered_data <- CLL_df |> 
+  filter(!(Drug %in% c("Ibrutinib", "Duvelisib", "Idelalisib", "ONO.4059", "Sunitinib", "Dasatinib")))
+
+lm_model <- lm(ORR ~ viab_mean, data = filtered_data)
+
+pred_data <- data.frame(viab_mean = seq(
+  min(filtered_data$viab_mean, na.rm = TRUE),
+  max(filtered_data$viab_mean, na.rm = TRUE),
+  length.out = 100))
+
+pred_data$ORR <- predict(lm_model, newdata = pred_data)
+pred_data$se <- predict(lm_model, newdata = pred_data, se.fit = TRUE)$se.fit
+pred_data$lower <- pred_data$ORR - 1.96 * pred_data$se
+pred_data$upper <- pred_data$ORR + 1.96 * pred_data$se
+
+p1 <- p1+ geom_ribbon(data = pred_data, 
+                 aes(x = viab_mean, y = ORR, ymin = lower, ymax = upper),
+                 fill = "lightgrey", alpha = 0.35, inherit.aes = FALSE)+
+      ylim(0,NA)
+
+p1 <- CLL_df |> 
+    ggplot(aes(x=viab_mean, y=ORR)) +
+    geom_line(data=pred_data, aes(x=viab_mean, y=ORR), inherit.AES = FALSE, color="grey80")+
+    geom_line(data=pred_data, aes(x=viab_mean, y=ORR+20), inherit.AES = FALSE, color="grey80", linetype="dashed")+
+    geom_line(data=pred_data, aes(x=viab_mean, y=ORR-20), inherit.AES = FALSE, color="grey80", linetype="dashed")+
+    geom_point(aes(size=nr_pat, color=Category)) +
+    geom_text_repel(aes(label=Drug), size=3, color="black", 
+      box.padding = 0.5,
+      point.padding = 0.75,
+      min.segment.length = 1)+
+    theme_bw()+
+    labs(title = "ORR ~ Mean viability", x = "Mean viability", y = "ORR", color="Drug type", size="Nr. of patients\nin study")+
+    theme(axis.text = element_text(color="black", size=8),
+legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+scale_color_manual(values=mycolors, labels = c("Kinase inhibitor", "Chemotherapy", "Other"))
+  
+
+p2 <- AML_df |> 
+    ggplot(aes(x=viab_mean, y=ORR, color=Category)) +
+    geom_point(aes(size=nr_pat)) +
+    geom_text_repel(aes(label=Drug), size=3, color="black",
+    box.padding = 0.5)+
+    theme_bw()+
+    labs(title = "ORR ~ Mean viability", x = "Mean viability", y = "ORR", color="Drug type", size="Nr. of patients\nin study")+
+    theme(axis.text = element_text(color="black", size=8),
+legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+scale_color_manual(values=mycolors, labels = c("Kinase inhibitor", "Chemotherapy", "Other"))+
+scale_size_continuous(
+    breaks=c(50,100,150,200),
+    labels =c(50,100,150,200)) 
+
+#Correlation of different parameters
+# Remove rows with missing ORR values
+CLL_clean <- CLL_df[!is.na(CLL_df$ORR), ] |> 
+  dplyr::select(-diagCompare, -diagBase)
+AML_clean <- AML_df[!is.na(AML_df$ORR), ] |> 
+  dplyr::select(-diagCompare, -diagBase)
+
+# Select predictor variables (from dose-response curve)
+CLL_predictors <- CLL_clean[, c(3:16)]
+AML_predictors <- AML_clean[, c(3:16)]
+
+CLL_outcome <- CLL_clean$ORR
+AML_outcome <- AML_clean$ORR
+
+# Correlation analysis to identify multicollinearity: CLL
+cor_matrix <- cor(CLL_predictors, use = "complete.obs")
+corrplot(cor_matrix, method = "color", type = "upper", title="CLL", addCoef.col = 'white', 
+         tl.cex = 0.8, tl.col = "black", tl.srt = 45)
+         
+# Correlation analysis to identify multicollinearity: AML
+cor_matrix <- cor(AML_predictors, use = "complete.obs")
+corrplot(cor_matrix, method = "color", type = "upper", title="AML", addCoef.col = 'white', 
+         tl.cex = 0.8, tl.col = "black", tl.srt = 45) 
+
+#plot median HS vs ORR in CLL
+FigS11b <- CLL_clean |> 
+    ggplot(aes(x=HS_mean, y=ORR, color=AUC_mean)) +
+    geom_point(aes(size=nr_pat)) +
+    geom_text_repel(aes(label=Drug), size=3, color="black",
+      point.padding = 1,
+      box.padding = 0.5,
+      min.segment.length = 0.5)+
+      stat_poly_line(col="grey40", linewidth=0.5, se=FALSE, linetype="dashed") +
+      stat_poly_eq(use_label("R2", "P"), label.x = "right", size=3) +
+    #geom_smooth(method="lm", col="black", linewidth=0.5, se=TRUE) +
+    theme_bw()+
+    labs(title = "CLL", x = "Mean Hill coefficient", y = "ORR", color="Median AUC", size="Nr. of patients\nin study")+
+    theme(axis.text = element_text(color="black", size=8),
+legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+scale_color_gradientn(colors=c("blue", "red"))
+FigS11b
+
+
+#plot for CLL
+p3 <- CLL_clean |> 
+    ggplot(aes(x=viab_mean, y=CR)) +
+    #geom_smooth(method="lm", col="lightgrey", linewidth=0.5, se=FALSE,alpha=0.5,linetype="dashed") +
+    geom_point(aes(size=nr_pat, color=Category)) +
+    geom_text_repel(aes(label=Drug), size=3, color="black",
+      box.padding = 0.5,
+      point.padding = 0.5,
+      max.overlaps=5)+
+      #stat_poly_line(col="grey40", linewidth=0.5, se=TRUE) +
+      stat_correlation(mapping = use_label("R", "R2", "P", "n"), label.x = "right", size=3)+
+    theme_bw()+
+    labs(title = "CRR ~ Mean viability", x = "Mean viability", y = "CRR", color="Drug type", size="Nr. of patients\nin study")+
+    theme(axis.text = element_text(color="black", size=8),
+legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+scale_color_manual(values=mycolors, labels = c("Kinase inhibitor", "Chemotherapy", "Other"))+
+ylim(0, NA)
+
+#plot for AML
+p4 <- AML_clean |> 
+    ggplot(aes(x=viab_mean, y=CR)) +
+    geom_point(aes(size=nr_pat, color=Category)) +
+    geom_text_repel(aes(label=Drug), size=3, color="black",
+      box.padding = 0.5,
+      point.padding = 0.5,
+      max.overlaps=5)+
+    #stat_poly_line(col="black", linewidth=0.5, se=FALSE) +
+    #stat_poly_eq(use_label("R2", "P"), label.x = "right", size=3) +
+    theme_bw()+
+    labs(title = "CRR ~ Mean viability", x = "Mean viability", y = "CRR", color="Drug type", size="Nr. of patients\nin study")+
+    theme(axis.text = element_text(color="black", size=8),
+legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+scale_color_manual(values=mycolors, labels = c("Kinase inhibitor", "Chemotherapy", "Other"))+
+scale_size_continuous(
+    breaks=c(50,100,150,200),
+    labels =c(50,100,150,200))+
+    ylim(0,60)
+
+Fig7a <- p1+p3 + plot_annotation("CLL", theme = theme(
+  plot.margin = margin(t=1, b=1, l=1, unit = "cm"),
+  plot.title = element_text(hjust=0.05, size=8, face="bold"))) +
+  plot_layout(guides = "collect")
+Fig7a
+
+Fig7b <- p2+p4 + plot_annotation("AML", theme = theme(
+  plot.margin = margin(t=1, b=1, l=1, unit = "cm"),
+  plot.title = element_text(hjust=0.05, size=8, face="bold"))) +
+  plot_layout(guides = "collect")
+Fig7b
+
+
+#create boxplot for pearson corr. coefficients
+#ORR, CLL
+parameters <- colnames(CLL_clean)[3:16]
+cor_data <- c()
+
+for (par in parameters) {
+
+  res <- CLL_clean |> 
+  dplyr::select(ORR, par) |> 
+  cor(method = "pearson")
+  
+  cor_data <- append(cor_data,res[2])
+  }
+  
+CLL_ORR <- data.frame(parameter = parameters, cor = cor_data, diagnosis = rep("CLL", length(parameters)), outcome = rep("ORR", length(parameters)))
+
+CLL_ORR |> 
+  ggplot(aes(x=parameter, y=abs(cor)))+
+  geom_col()+
+  labs(title="Correlation of parameters with ORR in CLL", y="Absolute pearson correlation coefficient")
+
+#CRR, CLL
+cor_data <- c()
+
+for (par in parameters) {
+
+  res <- CLL_clean |> 
+  dplyr::select(CR, par) |> 
+  cor(method = "pearson")
+  
+  cor_data <- append(cor_data,res[2])
+  }
+  
+CLL_CRR <- data.frame(parameter = parameters, cor = cor_data, diagnosis = rep("CLL", length(parameters)), outcome = rep("CRR", length(parameters)))
+
+CLL_CRR |> 
+  ggplot(aes(x=parameter, y=abs(cor)))+
+  geom_col()+
+  labs(title="Correlation of parameters with CRR in CLL", y="Absolute pearson correlation coefficient")
+
+#ORR, AML
+parameters <- colnames(AML_clean)[3:16]
+cor_data <- c()
+
+for (par in parameters) {
+
+  res <- AML_clean |> 
+  dplyr::select(ORR, par) |> 
+  cor(method = "pearson")
+  
+  cor_data <- append(cor_data,res[2])
+  }
+  
+AML_ORR <- data.frame(parameter = parameters, cor = cor_data, diagnosis = rep("AML", length(parameters)), outcome = rep("ORR", length(parameters)))
+
+AML_ORR |> 
+  ggplot(aes(x=parameter, y=abs(cor)))+
+  geom_col()+
+  labs(title="Correlation of parameters with ORR in AML", y="Absolute pearson correlation coefficient")
+  
+#CRR, AML
+cor_data <- c()
+
+for (par in parameters) {
+
+  res <- AML_clean |> 
+  dplyr::select(CR, par) |> 
+  filter(!is.na(CR)) |> 
+  cor(method = "pearson")
+  
+  cor_data <- append(cor_data,res[2])
+  }
+  
+AML_CRR <- data.frame(parameter = parameters, cor = cor_data, diagnosis = rep("AML", length(parameters)), outcome = rep("CRR", length(parameters)))
+
+AML_CRR |> 
+  ggplot(aes(x=parameter, y=abs(cor)))+
+  geom_col()+
+  labs(title="Correlation of parameters with CRR in AML", y="Absolute pearson correlation coefficient")  
+
+#combine
+cor_combined <- rbind(CLL_ORR, CLL_CRR, AML_ORR, AML_CRR)
+
+mycolors <- setNames(c("#B2DF8A", "#E31A1C"), c("CLL", "AML"))
+
+par_list <- cor_combined |> 
+  filter(str_detect(parameter, "mean"), parameter != "pF_mean", diagnosis == "CLL", outcome == "CRR") |> 
+  arrange(abs(cor)) |> 
+  pull(parameter)
+  
+cor_combined$parameter <- factor(cor_combined$parameter, levels = par_list)  
+
+
+Fig7d <- cor_combined |> 
+filter(str_detect(parameter, "mean")) |> 
+  mutate(direction = ifelse(sign(cor) >0, "positive", "negative")) |> 
+  filter(parameter != "pF_mean") |> 
+  ggplot(aes(y=parameter, x=abs(cor), fill=diagnosis))+
+  geom_col(aes(alpha=outcome), position = position_dodge(width=0.8), width=0.8)+
+  facet_wrap(~diagnosis, ncol=2)+
+  labs(title="", y="Parameter (mean)", x="Absolute Pearson correlation coefficient",
+  fill = "Diagnosis", alpha="Outcome")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  axis.text.x = element_text(color="black", size=8, angle=45, hjust=1, vjust=1), 
+  axis.text.y = element_text(color="black", size=8), 
+  axis.title = element_text(size=8),
+  legend.key.size = unit(0.5, 'cm'),
+  legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8),
+  plot.title = element_text(hjust=0.5, size=8, face="bold"))+
+  scale_fill_manual(values=mycolors, guide="none")+
+  scale_alpha_manual(values=c(1, 0.5))+
+  xlim(0,1)+
+  scale_y_discrete(labels=c("Hill coefficient", "pIC50", "Einf", "R2", "AUC", "Mean viability"))
+
+  
+Fig7d <- Fig7d + theme(plot.margin = margin(t=1, b=1, l=1, unit = "cm"))
+Fig7d
