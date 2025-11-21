@@ -1,0 +1,228 @@
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(tidyverse)
+library(stats)
+
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+load("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/patmeta_210324.RData")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#create means
+means <- merged_table_long |> 
+  group_by(patientID, drug, diagnosis) |> 
+  summarize(mean(viability))
+means
+
+#filter for CLL
+means_cll <- means |>
+  filter(str_detect(diagnosis, "CLL"))
+  
+#merge with patMeta
+means_merged <- merge(means_cll, patMeta, by.x="patientID", by.y = "Patient.ID")
+
+#create new table with genetic information: meanM and meanU
+df_ighv <- means_merged |> 
+  group_by(IGHV.status, drug) |> 
+    dplyr::rename(viab = "mean(viability)") |> 
+    summarize(mean(viab)) |> 
+      ungroup()
+
+df_ighv <- df_ighv |> 
+  na.omit(IGHV.status)
+
+#calculate difference in viability instead of log2fc
+df_wide <- pivot_wider(df_ighv, names_from = "IGHV.status", values_from = "mean(viab)") 
+
+df_1 <- df_wide|> 
+  mutate(diff_viab = (U-M)/(U)*100)
+  
+#not normally distributed > wilcoxon
+hist(log(df_1$diff_viab))  
+  
+# Perform wilxocon to get p-values
+means_merged <- means_merged |> 
+  arrange(drug)
+
+
+p_value = sapply(means_merged$drug, function(d) {
+      m_values <- means_merged %>% 
+        filter(IGHV.status == "M" & drug == d) %>% 
+        pull("mean(viability)")
+      u_values <- means_merged %>% 
+        filter(IGHV.status == "U" & drug == d) %>% 
+        pull("mean(viability)")
+      wilcox.test(m_values, u_values)$p.value
+    })
+    
+# Calculate -log10 of p-value for y-axis
+p_value <- as.vector(p_value)
+means_merged$neg_log10_p <- -log10(p_value)
+
+write.csv(p_value, "p_value_IGHV", row.names = FALSE)
+  
+#combine with df_1
+df_2 <- means_merged |> 
+  group_by(drug) |> 
+    summarize(mean(neg_log10_p)) |> 
+    ungroup()
+    
+df_3 <- merge(df_1,df_2, by = "drug") |> 
+  dplyr::rename(p_val = "mean(neg_log10_p)")
+
+#dat <- subset(df_3, diff_viab > -10 & diff_viab < 5)
+#dat$drug <- df_3$drug
+
+#integrate colors for pathway
+library(RColorBrewer)
+
+drugCategory_modified <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/drugCategory_modified.csv", sep=";")
+
+df_3<- merge(df_3, drugCategory_modified[,c(2,6)], by = "drug")
+
+pways <- as.vector(unlist(df_3[,"Pathway_mod2"]))
+pways <- sort(unique(pways))
+pways <- pways[-10]
+pways <- append(pways, "other")
+
+mycolors <- colorRampPalette(brewer.pal(12, "Paired"))(14)
+names(mycolors) <- pways
+
+mycolors["Stress pathway"] <- "#B15928" 
+mycolors["other"] <- "grey80" 
+
+#use colors from heatmap Fig3
+annotation_colors_row <- setNames(c("lightgrey", "#FCCDE5", "#B3DE69", "#FDB462", "#80B1D3", "#FB8072", "#BEBADA", "#FFFFB3", "#8DD3C7", "#A6CEE3", "#6DBD57", "#DE9E83", "#BC80BD"), c("other", "DNA damage response", "Chemotherapy" ,  "MAPK" , "B-cell receptor", "PI3K", "Stress pathway", "Bromodomain/PLK", "JAK/STAT", "Apoptosis", "Cell cycle control", "Histone methylation", "PI3K/AKT/mTOR"))
+
+#add number of sign. differences
+#add concentration levels
+merged_table_long$level <- c(rep(seq(1:5), nrow(merged_table_long)/5))
+
+#filter for CLL
+cll <- merged_table_long |>
+  filter(str_detect(diagnosis, "CLL"))
+  
+#merge with patMeta
+merged <- merge(cll, patMeta, by.x="patientID", by.y = "Patient.ID")[, c(1,3,4, 5, 6, 14)]
+
+#create new table with genetic information: meanM and meanU
+df_ighv <- merged |> 
+  group_by(drug, level, IGHV.status) |> 
+    dplyr::rename(viab = viability) |> 
+    summarize(mean(viab)) |> 
+      ungroup()
+
+df_ighv <- df_ighv |> 
+  na.omit(IGHV.status)
+
+#calculate difference in viability instead of log2fc
+df_wide <- pivot_wider(df_ighv, names_from = "IGHV.status", values_from = "mean(viab)") 
+
+df_1 <- df_wide|> 
+  mutate(diff_viab = (U-M)/(U)*100)
+  
+#not normally distributed > wilcoxon
+hist(log(df_1$diff_viab), breaks=20)
+  
+# Perform wilxocon to get p-values for all levels
+# Calculate p-values for each drug and level
+p_values <- merged %>%
+  group_by(drug, level) %>%
+  summarise(
+    p_value = tryCatch(
+      wilcox.test(
+        viability[IGHV.status == "U"], 
+        viability[IGHV.status == "M"]
+      )$p.value,
+      error = function(e) NA
+    ),
+    n_U = sum(IGHV.status == "U"),
+    n_M = sum(IGHV.status == "M"),
+    mean_U = mean(viability[IGHV.status == "U"], na.rm = TRUE),
+    mean_M = mean(viability[IGHV.status == "M"], na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  # Adjust p-values for multiple comparisons
+  mutate(
+    p_adjusted = p.adjust(p_value, method = "fdr")
+  ) %>%
+  # Sort by adjusted p-value
+  arrange(p_adjusted)
+
+# Print the results
+print(p_values)
+
+# Count significant p-values per drug
+# You can adjust the significance threshold as needed (e.g., 0.05 or 0.01)
+significant_counts <- p_values %>%
+    mutate(count = case_when(p_value < 0.05 ~ 1, TRUE ~ 0)) |> 
+      group_by(drug) |> 
+        summarize(nr_count = sum(count)) |> 
+          ungroup()
+          
+#merge
+df_4 <- merge(df_3, significant_counts, by = "drug") |> 
+  group_by(drug)
+  
+df_4$Pathway_mod2 <-  factor(df_4$Pathway_mod2, levels = c("ABL (BCR)", "Apoptosis", "B-cell receptor", "Bromodomain/PLK", "Cell cycle control", "Chemotherapy", "DNA damage response", "Histone methylation", "JAK/STAT", "MAPK", "PI3K/AKT/mTOR", "Stress pathway","other"))
+          
+#plot2
+set.seed(123)
+plot2 <- ggplot(df_4, aes(x = diff_viab, y = p_val, label=drug)) +
+  geom_hline(yintercept = -log10(0.05), 
+             linetype = "dashed", 
+             color = "black") +
+  geom_vline(xintercept = 0, 
+             color = "black") +
+  geom_point(aes(color=Pathway_mod2, size=nr_count), alpha = 0.8) +
+    geom_text_repel(
+    text.padding = 0.5,
+    box.padding = 0.5,
+    max.overlaps = 10,
+    min.segment.length = 2,
+    size=3
+)+
+  theme_classic() +
+  labs(
+    title = "IGHV",
+    x = "Difference in mean viability (%)",
+    y = expression(-log[10]*italic(P)),
+  ) +
+    scale_x_continuous(limits = c(-20, 20)) +
+    scale_color_manual(values=annotation_colors_row) +
+    labs(color="Pathway", size="Number of sign. \ndifferent concentrations") +
+    guides(color = guide_legend(override.aes = list(size = 4)))+
+    theme(plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+    axis.text.x = element_text(color="black", size=8), 
+    axis.text.y = element_text(color="black", size=8),
+    axis.title = element_text(color="black", size=8),
+    legend.title = element_text(size=8, face="bold"),
+    legend.text=element_text(size=8),
+    axis.line = element_line(size = 0.5))+
+    annotate("text", label="more active\nin U-CLL", y=25, x=-10, size=3)+
+    annotate("text", label="more active\nin M-CLL", y=25, x=10, size=3)
+
+Fig5b <-plot2 + theme(plot.margin = margin(t=1, l=1, unit = "cm"))
+Fig5b

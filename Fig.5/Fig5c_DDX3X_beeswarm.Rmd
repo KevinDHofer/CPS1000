@@ -1,0 +1,99 @@
+library(tidyverse)
+library(ggpubr)
+
+#load data
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+load("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/patmeta_210324.RData")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#change order according to mean viability  
+merged_table_conc <- merged_table_long |> 
+  mutate(conc = rep(seq(1:5), times = nrow(merged_table_long)/5))
+
+#focus on main diseases
+merged_filtered <- merged_table_conc |>
+  filter(str_detect(diagnosis, "CLL"))
+  
+#merge with patMeta
+merged_filtered <- merged_filtered |> 
+  group_by(drug, patientID)
+
+df <- merge(merged_filtered, patMeta, by.x="patientID", by.y = "Patient.ID") 
+
+#focus on BCR
+df_bcr <- df |>
+  filter(drug == "Ibrutinib" | drug == "ONO.4059" | drug == "PRT062607")
+  
+df_bcr$conc <- replace(df_bcr$conc, df_bcr$conc %in% c(1,2,3,4,5), c("2","0.4","0.08","0.016","0.0032"))
+
+df_bcr <- df_bcr  |> 
+  filter(IGHV.status == "U")
+
+df_bcr <- df_bcr[!(is.na(df_bcr$DDX3X)), ]  
+  
+
+#plot graph
+my_comparisons <- list(c("Ibrutinib", "ONO.4059", "PRT062607"))
+
+mycolors <- c("#E78AC3", "grey60")
+names(mycolors) <- c(1,0)
+
+theme_set(theme_bw() + theme(
+plot.title = element_text(hjust=0.5, size=8, face="bold"),
+panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(),
+axis.text.x = element_text(color="black", angle = 45, hjust=1, vjust=1, size=8), 
+axis.text.y = element_text(color="black", size=8), 
+axis.title = element_text(size=8),
+legend.title = element_text(size=8, face="bold"), legend.text=element_text(size=8), 
+legend.key.size = unit(0.5, 'cm'),
+#axis.line = element_line(size = 0.5),
+panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm")))
+
+p1 <- df_bcr |> 
+  mutate(drug = case_when(drug == "Ibrutinib" ~ "Ibrutinib (BTK)",
+    drug == "ONO.4059" ~ "ONO.4059 (BTK)",
+    drug == "PRT062607" ~ "PRT062607 (SYK)",
+    TRUE ~ drug)) |> 
+  ggplot(aes(x=factor(conc), y=viability, color=DDX3X)) + 
+  geom_boxplot(alpha = 0.3, width = 0.5, position=position_dodge(0.75), outlier.shape = NA) + 
+  geom_jitter(alpha = 0.25, position = position_jitterdodge()) + 
+scale_color_manual(values=mycolors, labels=c("unmutated", "mutated")) +
+    labs(y = "Viability", title ="U-CLL")+ 
+    facet_wrap(.~drug) + 
+    stat_compare_means(aes(group = DDX3X), 
+                    method = "t.test",
+                    label = "p.signif",
+                    label.y = 1.1, 
+                    size=3)+
+    labs(x = bquote("Concentration ("*mu*"M)"))+
+    scale_y_continuous(breaks=seq(0,1.0, 0.2), limits=c(0,1.15)) +
+    guides(color = guide_legend(override.aes = list(label = "")))
+
+Fig5c <- p1 + theme(plot.margin = margin(t=0.5, l=1, r=1, unit = "cm"))
+Fig5c
