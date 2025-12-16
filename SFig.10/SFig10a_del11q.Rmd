@@ -1,0 +1,90 @@
+library(tidyverse)
+library(ggplot2)
+library(ggpubr)
+library(ggrepel)
+library(rstatix)
+
+
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+load("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/patmeta_210324.RData")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  select (patientID, diagnosis) 
+diseases
+
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#filter for CLL
+merged_table_long <- merged_table_long |>
+  filter(str_detect(diagnosis, "CLL"))
+  
+#create means
+means <- merged_table_long |> 
+  group_by(patientID, drug, diagnosis) |> 
+  summarize(mean(viability))
+means
+
+#filter ibrutinib
+ibr <- means |> 
+  filter(drug == "Ibrutinib")
+  
+#merge with patMeta
+df_merged <- merge(ibr, patMeta, by.x="patientID", by.y = "Patient.ID") |> 
+  dplyr::rename(viab ="mean(viability)")
+  
+df <- df_merged[!(is.na(df_merged$del11q)), ]  
+df <- df[!(is.na(df$IGHV.status)), ]  
+
+df$IGHV.status <- factor(df$IGHV.status, levels = c("U","M"))
+
+#plot graph
+mycolors <- setNames(c("#E5C494", "grey80"), c(1, 0))
+
+p <- df |> 
+mutate(drug = case_when(drug == "Ibrutinib" ~ "Ibrutinib (BTK)",
+                          TRUE ~ drug)) |> 
+  ggplot(aes(x=del11q, y=viab, color=del11q)) +
+  geom_boxplot(alpha = 1, width = 0.5, position=position_dodge(0.75), outlier.shape = NA) + 
+  geom_jitter(aes(shape=IGHV.status), width = 0.1, alpha = 0.75) + 
+  scale_color_manual(values=mycolors, labels=c("unmutated", "mutated")) +
+  scale_shape_discrete(name="IGHV", labels=c("unmutated", "mutated")) +
+  theme_bw() +
+  labs(y = "Mean viability", x="", title="CLL") + 
+  stat_compare_means(aes(group = del11q), method = "t.test", label = "p.signif", label.x.npc= "middle", label.y = 1.05, size=3)+
+  theme(
+    strip.text.y = element_text(size = 0), 
+        strip.text.x = element_text(size=8),
+        axis.text = element_text(size =8, color="black"), axis.title = element_text(size =8, color="black"),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0.15, "lines"), 
+        legend.title = element_text(size=8, face="bold"),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+        strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),        
+    plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+    legend.key.size = unit(0.5, 'cm'))+
+    scale_y_continuous(breaks=seq(0.4,1.0, 0.2), limits=c(0.4,1.1)) +
+    guides(color = guide_legend(override.aes = list(label = ""))) +
+    facet_wrap(~drug)
+p    
+
+SFig10a <- p + theme(plot.margin = margin(l = 1, r = 1, t=1, unit = "cm"))

@@ -1,0 +1,101 @@
+library(tidyverse)
+library(plotrix)
+
+#load data
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#focus on main diseases
+merged_filtered <- merged_table_long
+#|>filter(str_detect(diagnosis, "CLL") | str_detect(diagnosis, "MCL") |         str_detect(diagnosis, "AML") | str_detect(diagnosis, "B-ALL") | str_detect(diagnosis, "T-ALL") | str_detect(diagnosis, "B-PLL")  | str_detect(diagnosis, "T-PLL"))
+merged_filtered 
+
+#remove last two characters from each string in 'drug' column
+merged_filtered<- merged_filtered |> 
+  mutate(drug_sub = str_sub(merged_filtered$drug, end = -3)) |> 
+    filter(diagnosis != "")
+
+#select cobimetinib and diseases
+merged_filtered_c <- merged_filtered |> 
+    filter(drug_sub == "Cobimetinib") |> 
+    filter(diagnosis == "HCL" | diagnosis == "CLL" | diagnosis == "T-PLL") |> 
+    mutate(drug = fct_recode(drug, "0.0032" = "Cobimetinib_1",
+"0.016" = "Cobimetinib_2", "0.08" = "Cobimetinib_3", "0.4" = "Cobimetinib_4", "2" = "Cobimetinib_5"))
+
+#change order
+merged_filtered_c$diagnosis <- as.factor(merged_filtered_c$diagnosis)
+merged_filtered_c$diagnosis <- factor(merged_filtered_c$diagnosis, levels = c("CLL", "HCL", "T-PLL"))
+
+#set colors
+mycolors <- setNames(c("#1F78B4", "#B2DF8A", "#A6CEE3", "grey", "#E31A1C", "#FB9A99", "#FF7F00", "#CAB2D6"), c("MCL", "CLL", "T-PLL", "other", "AML", "T-ALL", "B-ALL", "B-PLL"))
+
+#set theme
+theme_set(theme_bw() + theme(
+plot.title = element_text(hjust=0.5, size=8, face="bold"),
+panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(),
+axis.text.x = element_text(color="black", angle = 45, hjust=1, vjust=1, size=8), 
+axis.text.y = element_text(color="black", size=8), 
+axis.title = element_text(size=8),
+legend.position = "none",
+#axis.line = element_line(size = 0.5),
+panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm")))
+
+#plot for cobimetinib
+plot <- merged_filtered_c |>
+    ggplot(aes(x=rev(factor(drug)), y=viability, group=diagnosis, color=diagnosis)) +
+    geom_boxplot(aes(group=drug), alpha = 0.3, width = 0.5, position=position_dodge(0.75), outlier.shape = NA)+
+    geom_jitter(aes(group=diagnosis), size=1, alpha = 0.25, width=0.25)+
+    labs(title="Cobimetinib (MEK)", x = bquote("Concentration ("*mu*"M)"), y = "Viability")+
+    scale_y_continuous(breaks=seq(0,1.0, 0.2), limits=c(0,1.1))+
+    #stat_summary(fun = median, geom = "path", mapping = aes(group = -1))+ 
+    facet_wrap(~diagnosis, ncol = 3)+
+    scale_color_manual(values=mycolors)
+plot
+
+SFig9a <- plot + theme(plot.margin = margin(t=1, l=1, r=1, b=1, unit = "cm"))
+
+#select quizartinib and diseases
+merged_filtered_q <- merged_filtered |> 
+    filter(drug_sub == "Quizartinib") |> 
+    filter(diagnosis %in% c("AML","CLL","B-ALL")) |> 
+    mutate(drug = fct_recode(drug, "0.0032" = "Quizartinib_1",
+"0.016" = "Quizartinib_2", "0.08" = "Quizartinib_3", "0.4" = "Quizartinib_4", "2" = "Quizartinib_5"))
+
+#change order
+merged_filtered_q$diagnosis <- as.factor(merged_filtered_q$diagnosis)
+merged_filtered_q$diagnosis <- factor(merged_filtered_q$diagnosis, levels = c("AML", "B-ALL", "CLL"))
+
+#plot for quizartnib
+plot2 <- merged_filtered_q |>
+    ggplot(aes(x=rev(factor(drug)), y=viability, group=diagnosis, color=diagnosis)) +
+    geom_boxplot(aes(group=drug), alpha = 0.3, width = 0.5, position=position_dodge(0.75), outlier.shape = NA)+
+    geom_jitter(aes(group=diagnosis), size=1, alpha = 0.25, width=0.25)+
+    labs(title="Quizartinib (FLT3)", x = bquote("Concentration ("*mu*"M)"), y = "Viability")+
+    scale_y_continuous(breaks=seq(0,1.0, 0.2), limits=c(0,1.1))+
+    #stat_summary(fun = median, geom = "path", mapping = aes(group = -1))+ 
+    facet_wrap(~diagnosis, ncol = 3)+
+    scale_color_manual(values=mycolors)
+plot2
+
+SFig9b <- plot2 + theme(plot.margin = margin(t=1, l=1, r=1, b=1, unit = "cm"))

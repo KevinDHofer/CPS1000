@@ -1,0 +1,475 @@
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(patchwork)
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(plotrix)
+library(drc)
+library(scales)
+library(corrplot)
+library(leaps)
+library(glmnet)
+library(tidyverse)
+library(ggplot2)
+library(dendextend)
+library(stats)
+
+#load tables
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+  
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+  
+ORR_CLL <- read_excel("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/clinical_responses_AML_CLL_20250623.xlsx", sheet = "CLL")
+
+ORR_AML <- read_excel("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/clinical_responses_AML_CLL_20250623.xlsx", sheet = "AML")
+  
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+  
+# merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+  
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long <- merged_table_long |> 
+  mutate(conc_level=rep(seq(1,5), times=nrow(merged_table_long)/5)) 
+  
+#remove empty diagnosis  |> 
+merged_table_long <- merged_table_long |> 
+  filter(diagnosis != "")
+
+#cap supravital viability results (cut-off <1.2)
+merged_table_long$viability[merged_table_long$viability >1.2] <-1.2
+
+#create means
+merged_table_long <- merged_table_long |> 
+  group_by(patientID, drug, diagnosis) |> 
+  summarize(viability = mean(viability))
+
+#rank drugs
+rankTab <- merged_table_long |> 
+  group_by(patientID, drug, diagnosis) |> 
+  summarise(meanViab = mean(viability)) |> 
+  dplyr::ungroup()
+medTab <- merged_table_long |> 
+  group_by(drug) |> 
+  summarise(medVal = median(viability))
+rankTab <- left_join(rankTab, medTab, by = "drug") |>  
+  mutate(score = meanViab - medVal)
+
+#make rank plot
+rank_score_tab <- rankTab |> 
+  group_by(patientID, diagnosis) |> 
+  arrange((score)) |> 
+  mutate(rank_score=row_number(), l2fc = log2(meanViab)-log2(medVal)) |> 
+  ungroup()
+
+#show ranks for AML with venetoclax, cytarabine
+aml_cyt <- rank_score_tab |> 
+filter(diagnosis %in% c("AML")) |> 
+mutate(drug_col = ifelse(drug %in% c("Cytarabine"), drug, "other")) |>
+ggplot(aes(x=rank_score, y=score, alpha=drug_col, group=patientID))+
+geom_hline(yintercept = 0, color="grey70")+
+geom_line(alpha=0.25, color="black")+
+geom_point(aes(alpha=drug_col, fill=drug_col, color=drug_col), size=1.5, shape=21)+
+scale_alpha_manual(values=c(0.75,0))+
+scale_fill_manual(name="Drug", breaks=c("Cytarabine"), values=c("#E31A1C", ""))+
+scale_color_manual(name="Drug", breaks=c("Cytarabine"), values=c("#E31A1C", ""))+
+  labs(title="Cytarabine", y="Score", x="Drug rank")+
+  theme_bw()+
+  theme(axis.text = element_text(color="black", size=8),
+  legend.position = "none", axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8),
+  panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 1, fill = NA))
+aml_cyt
+
+aml_ven <- rank_score_tab |> 
+filter(diagnosis %in% c("AML")) |> 
+mutate(drug_col = ifelse(drug %in% c("Venetoclax"), drug, "other")) |>
+ggplot(aes(x=rank_score, y=score, alpha=drug_col, group=patientID))+
+geom_hline(yintercept = 0, color="grey70")+
+geom_line(alpha=0.25, color="black")+
+geom_point(aes(alpha=drug_col, fill=drug_col, color=drug_col), size=1.5, shape=21)+
+scale_alpha_manual(values=c(0, 0.75))+
+scale_fill_manual(name="Drug", breaks=c("Venetoclax"), values=c("#E31A1C", ""))+
+scale_color_manual(name="Drug", breaks=c("Venetoclax"), values=c("#E31A1C", ""))+
+  labs(title="Venetoclax", y="Score", x="Drug rank")+
+  theme_bw()+
+  theme(axis.text = element_text(color="black", size=8),
+  legend.position = "none", axis.title = element_text(size=8), plot.title = element_text(hjust=0.5, size=8),
+  panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 1, fill = NA))
+aml_ven
+
+SFig8c <- aml_cyt + aml_ven + plot_annotation(title = "AML", theme = theme(plot.title = element_text(hjust=0.5, size=8, face="bold"))) + theme(plot.margin = margin(t=1, unit = "cm"))
+SFig8c
+
+#plot disease-specific drug-ranking, with M-CLL/U-CLL
+load("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/patmeta_210324.RData")
+
+cll_meta <- patMeta[, c("Patient.ID", "diagnosis", "IGHV.status")] |> 
+  filter(diagnosis == "CLL")
+
+rank_score_tab_mod <- merge(rank_score_tab, cll_meta[,c("Patient.ID", "IGHV.status")], by.x="patientID", by.y="Patient.ID", all.x = TRUE) |> 
+  mutate(diagnosis = case_when(IGHV.status == "U" ~ "U-CLL",
+                               IGHV.status == "M" ~ "M-CLL",
+                               TRUE ~ diagnosis)) |> 
+                               filter(diagnosis != "CLL")
+
+drug_ranking_diag <- rank_score_tab_mod |> 
+  group_by(drug, diagnosis) |> 
+  summarize(median_score = median(score), score_sd = sd(score)) |> 
+  arrange(median_score) |> 
+  group_by(diagnosis) |>
+  mutate(rank_median = row_number())
+  
+mycolors <- setNames(c("#1F78B4", "#B2DF8A", "#33A02C", "#A6CEE3", "grey", "#E31A1C", "#FB9A99", "#FF7F00", "#CAB2D6"), c("MCL", "U-CLL", "M-CLL", "T-PLL", "other", "AML", "T-ALL", "B-ALL", "B-PLL"))  
+
+
+# plot: aml
+drug_order_aml <- drug_ranking_diag |> 
+  filter(diagnosis == "AML") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_aml)  
+
+rank_aml <- drug_ranking_diag |> 
+  filter(diagnosis == "AML") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="Median score", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))
+          
+# plot: u-cll
+drug_order_ucll <- drug_ranking_diag |> 
+  filter(diagnosis == "U-CLL") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_ucll)  
+
+rank_ucll <- drug_ranking_diag |> 
+  filter(diagnosis == "U-CLL") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))    
+          
+# plot: m-cll
+drug_order_mcll <- drug_ranking_diag |> 
+  filter(diagnosis == "M-CLL") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_mcll)  
+
+rank_mcll <- drug_ranking_diag |> 
+  filter(diagnosis == "M-CLL") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))            
+          
+# plot: b-all
+drug_order_ball <- drug_ranking_diag |> 
+  filter(diagnosis == "B-ALL") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_ball)  
+
+rank_ball <- drug_ranking_diag |> 
+  filter(diagnosis == "B-ALL") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))      
+          
+# plot: t-all
+drug_order_tall <- drug_ranking_diag |> 
+  filter(diagnosis == "T-ALL") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_tall)  
+
+rank_tall <- drug_ranking_diag |> 
+  filter(diagnosis == "T-ALL") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="Median score", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))            
+
+# plot: mcl
+drug_order_mcl <- drug_ranking_diag |> 
+  filter(diagnosis == "MCL") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_mcl)  
+
+rank_mcl <- drug_ranking_diag |> 
+  filter(diagnosis == "MCL") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="Median score", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))  
+
+# plot: tpll
+drug_order_tpll <- drug_ranking_diag |> 
+  filter(diagnosis == "T-PLL") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_tpll) 
+
+rank_tpll <- drug_ranking_diag |> 
+  filter(diagnosis == "T-PLL") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))  
+          
+
+# plot: bpll
+drug_order_bpll <- drug_ranking_diag |> 
+  filter(diagnosis == "B-PLL") |> 
+  arrange(median_score) |> 
+  pull(drug)
+  
+drug_ranking_diag$drug <- factor(drug_ranking_diag$drug, levels=drug_order_bpll) 
+
+rank_bpll <- drug_ranking_diag |> 
+  filter(diagnosis == "B-PLL") |> 
+  mutate(direction = sign(median_score)) |> 
+  ggplot(aes(x=drug, y=median_score, fill=diagnosis))+
+  geom_col(alpha=0.9) +
+  geom_errorbar(aes(ymin = median_score-score_sd, ymax = median_score+score_sd), 
+  color="black", alpha=0.75, width=0.5, linewidth=0.5)+
+  facet_wrap(~diagnosis) +
+  labs(title="", y="Median score", x="") +
+  theme_bw() +
+  guides(color="none")+
+  scale_fill_manual(values=mycolors)+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 45, hjust=1, vjust=1, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))          
+
+SFig8b <- (rank_aml+plot_spacer()+rank_ball+plot_layout(widths = c(1, -0.1 ,1)))/(rank_bpll+plot_spacer()+rank_mcll+plot_layout(widths = c(1, -0.1 ,1)))/(rank_mcl+plot_spacer()+rank_ucll+plot_layout(widths = c(1, -0.1 ,1)))/(rank_tall+plot_spacer()+rank_tpll+plot_layout(widths = c(1, -0.1 ,1))) + theme(plot.margin = margin(t=1, unit = "cm"))
+SFig8b
+
+#calculate global ranks
+#show all diseases
+global_rank_tab <- rank_score_tab_mod |> 
+group_by(patientID) |> 
+mutate(global_score = sum(score)) |> 
+arrange(global_score) |> 
+group_by(drug) |> 
+mutate(global_rank = row_number()) |> 
+filter(drug == "Ibrutinib") |> 
+#calculate median global rank per diagnosis
+group_by(diagnosis) |> 
+mutate(global_score_median_diag = median(global_score),
+        global_rank_median_diag = median(global_rank))
+        
+
+#plot
+diagSelected <- c("AML", "B-ALL", "T-ALL", "T-PLL", "B-PLL", "MCL", "U-CLL", "M-CLL")
+
+global_rank_tab <- global_rank_tab |> 
+  mutate(diag_col = ifelse(diagnosis %in% diagSelected, diagnosis, "other"))
+  
+global_rank_tab$diag_col <- factor(global_rank_tab$diag_col, levels = sort(diagSelected))
+
+# Calculate the line for all data
+reference_line <- global_rank_tab |>
+  arrange(global_rank) |>
+  dplyr::select(global_rank, global_score)
+  
+global_rank_tab <- global_rank_tab |> 
+  filter(!is.na(diag_col)) 
+
+score_ranking <- global_rank_tab |> 
+  arrange(global_score_median_diag) |> 
+  distinct(diag_col) |> 
+  pull(diag_col)
+  
+global_rank_tab$diag_col <- factor(global_rank_tab$diag_col, levels = score_ranking)
+
+# Now plot with facets
+all_diag <- global_rank_tab |> 
+  ggplot(aes(x=global_rank, y=global_score)) +
+  geom_hline(data = global_rank_tab |> 
+               distinct(diag_col, global_score_median_diag),
+             aes(yintercept = global_score_median_diag), 
+             color="grey90")+
+  geom_line(data = reference_line, color="grey30", linewidth=0.5, inherit.aes=TRUE) +
+  geom_hline(data = global_rank_tab |> 
+               distinct(diag_col, global_score_median_diag),
+             aes(yintercept = global_score_median_diag), 
+             color="grey80")+
+  geom_point(aes(color=diag_col), alpha=0.8, size=1.5) +
+  #geom_point(aes(x=global_rank_median_diag, y=global_score_median_diag), color="grey80",size=1.5, shape=21) +
+  facet_wrap(~diag_col, ncol=4) +
+  scale_alpha_manual(values=c(rep(0.5, length(diagSelected)))) +
+  scale_color_manual(values=mycolors)+
+  labs(title="", y="Sum of drug scores", x="Sample rank") +
+  theme_bw() +
+  guides(alpha = "none", color="none")+
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 0, color="black", size=8), 
+          panel.grid = element_line(colour = "white"), 
+          axis.text.y = element_text(color="black", size=8), 
+          axis.title.y = element_text(size=8), 
+          axis.title.x = element_text(size=8), 
+          panel.border = element_rect(color = "black", linewidth = 1, fill = NA),
+          strip.background = element_rect(color = "black", linewidth = 1, fill = "grey90"),
+          plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+          strip.text = element_text(size = 8), 
+          plot.margin = margin(l = 0.5, r = 1, unit = "cm"))
+all_diag
+
+SFig8a <- all_diag + theme(plot.margin = margin(t=1, l=1, r=1, unit = "cm"))

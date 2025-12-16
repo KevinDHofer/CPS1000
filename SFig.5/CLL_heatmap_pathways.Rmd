@@ -1,0 +1,208 @@
+library(tidyverse)
+library(dplyr)
+library("ComplexHeatmap")
+library(circlize)
+
+#load raw data
+usedSamples_all <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/usedSamples_all.csv", sep=";")
+
+viability_table <- read.csv2("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/viability_table.csv")
+
+drugCategory_modified <- read.csv("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/analysis/drugCategory_modified.csv", sep=";")
+
+load("~/Dropbox/Medizin/Forschung/Aktuelle Forschungsprojekte/CLL CPS1000/raw data/patmeta_210324.RData")
+
+#load table with disease entities  
+diseases <- usedSamples_all |> 
+  arrange(patientID) |> 
+  dplyr::select (patientID, diagnosis) 
+diseases
+
+#merge the tables
+merged_table <- cbind(diseases, viability_table) |> 
+  relocate(diagnosis, .before = X10058.F4_1)
+merged_table
+
+#transfrom in long data frame
+merged_table_long <- merged_table |>
+  pivot_longer(cols = c(4:318), names_to = "drug", values_to = "viability")
+merged_table_long
+
+#remove last two characters from each string in 'drug' column
+merged_table_long$drug <- str_sub(merged_table_long$drug, end = -3)
+merged_table_long
+
+#create "other" group for less prevalent diseases
+merged_other <- merged_table_long |>
+  filter(diagnosis == "CLL")
+merged_other  
+
+#create means across concentration levels
+df_means <- merged_other |> 
+  group_by(patientID, diagnosis, drug) |> 
+    summarize(mean(viability))
+df_means
+
+#create means across drugs for pathways
+df_means <- df_means |> dplyr::rename(viab = "mean(viability)")
+
+#pivot wider
+wide <- pivot_wider(df_means, names_from = patientID, values_from = viab)
+wide
+
+#add diagnosis
+diag <- usedSamples_all[, c("patientID", "diagnosis")] |> 
+  filter(diagnosis == "CLL")
+
+#merge with patMeta
+meta <- patMeta[, c("Patient.ID", "diagnosis", "IGHV.status", "Methylation_Cluster", "del11q", "del17p", "TP53", "trisomy12", "del13q", "SF3B1")]
+
+diag_merged_cll <- merge(diag, meta, by.x = "patientID", by.y= "Patient.ID")
+    
+#adjust the wide df  
+wide.use <- names(wide)[(names(wide) %in% diag_merged_cll$patientID)]
+wide.subset <- wide[, wide.use]
+wide.subset.drug <- wide[, c("drug", wide.use)]
+
+#merge with pathway table
+df_pathway <- drugCategory_modified[, c("drug", "Pathway_mod")]
+
+df_comb <- merge(df_pathway, wide.subset.drug, by = "drug", all = TRUE)
+
+#scale
+x <- data.frame(wide.subset)
+y <- data.frame(t(scale(t(x))))
+
+#create matrix
+rownames(y) = wide.subset.drug$drug
+colnames(y) = colnames(wide.subset)
+z <- as.matrix(y)
+
+#set colors
+library(RColorBrewer)
+library(paletteer)
+
+#annotation for IGHV status
+ighv_anno <- diag_merged_cll[,c("IGHV.status")]
+ighv_anno <- ighv_anno %>% replace(is.na(.), "unknown")
+ighv_colors <- colorRampPalette(brewer.pal(9, "Set1"))(length(unique(ighv_anno)))
+annotation_colors <- setNames(ighv_colors, unique(ighv_anno))
+
+#annotation for Methylation
+meth_anno <- diag_merged_cll[,c("Methylation_Cluster")]
+meth_anno <- factor(meth_anno, levels = c("HP", "IP","LP", "unknown"))
+meth_anno <- meth_anno %>% replace(is.na(.), "unknown")
+meth_colors <- colorRampPalette(brewer.pal(8, "Set2"))(length(unique(meth_anno)))
+annotation_colors_meth <- setNames(meth_colors, unique(meth_anno))
+
+#annotation for del13q
+del13q <- diag_merged_cll[,c("del13q")]
+del13q <- factor(del13q, levels = c(1, 0,"unknown"))
+del13q_anno <- del13q %>% replace(is.na(.), "unknown")
+del13q_colors <- c("black", "grey90", "#999999")
+annotation_colors_del13q <- setNames(del13q_colors, sort(unique(del13q_anno)))
+
+#annotation for TP53
+TP53 <- diag_merged_cll[,c("TP53")]
+TP53 <- factor(TP53, levels = c(1, 0,"unknown"))
+TP53_anno <- TP53 %>% replace(is.na(.), "unknown")
+TP53_colors <- c("black", "grey90", "#999999")
+annotation_colors_TP53 <- setNames(TP53_colors, sort(unique(TP53_anno)))
+
+#annotation for SF3B1
+SF3B1 <- diag_merged_cll[,c("SF3B1")]
+SF3B1 <- factor(SF3B1, levels = c(1, 0,"unknown"))
+SF3B1_anno <- SF3B1 %>% replace(is.na(.), "unknown")
+SF3B1_colors <- c("black", "grey90", "#999999")
+annotation_colors_SF3B1 <- setNames(SF3B1_colors, sort(unique(SF3B1_anno)))
+
+#annotation for del11q
+del11q <- diag_merged_cll[,c("del11q")]
+del11q <- factor(del11q, levels = c(1, 0,"unknown"))
+del11q_anno <- del11q %>% replace(is.na(.), "unknown")
+del11q_colors <- c("black", "grey90", "#999999")
+annotation_colors_del11q <- setNames(del11q_colors, sort(unique(del11q_anno)))
+
+#annotation for trisomy12
+trisomy12 <- diag_merged_cll[,c("trisomy12")]
+trisomy12 <- factor(trisomy12, levels = c(1, 0,"unknown"))
+trisomy12_anno <- trisomy12 %>% replace(is.na(.), "unknown")
+trisomy12_colors <- c("black", "grey90", "#999999")
+annotation_colors_trisomy12 <- setNames(trisomy12_colors, sort(unique(trisomy12_anno)))
+
+
+#annotation for pathways    
+df_comb$Pathway_mod <- factor(df_comb$Pathway_mod,
+    levels = c("AKT/mTOR", "B-cell receptor", "Bromodomain/PLK", "Chemotherapy", 
+               "DNA damage response", "JAK/STAT", "MAPK", "PI3K", "Stress pathway", "other"))
+               
+annotation_colors_row <- setNames(c("lightgrey", "#BC80BD", "#FCCDE5", "#B3DE69", "#FDB462", "#80B1D3", "#FB8072", "#BEBADA", "#FFFFB3", "#8DD3C7"), c("other", "AKT/mTOR", "DNA damage response", "Chemotherapy" ,  "MAPK" , "B-cell receptor", "PI3K", "Stress pathway", "Bromodomain/PLK", "JAK/STAT"))
+
+#z-score color
+color_fun_reversed <- colorRamp2(c(4, median(z), -4), c("red", "white", "blue"))
+
+#annotations
+ha = HeatmapAnnotation(
+  IGHV = diag_merged_cll$IGHV.status, 
+  Methylation = meth_anno,
+  del13q = del13q_anno,
+  TP53 = TP53_anno,
+  SF3B1 = SF3B1_anno,
+  del11q = del11q_anno,
+  trisomy12 = trisomy12_anno,
+  annotation_name_gp = gpar(fontsize = 8), 
+  col = list(
+  IGHV = annotation_colors,
+  Methylation = annotation_colors_meth,
+  del13q = annotation_colors_del13q,
+  TP53 = annotation_colors_TP53,
+  SF3B1 = annotation_colors_SF3B1,
+  del11q = annotation_colors_del11q,
+  trisomy12 = annotation_colors_trisomy12
+  ),
+  annotation_legend_param = list(
+    IGHV = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8),
+      nrow = 2),
+    Methylation = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8)),
+    del13q = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8)),
+    TP53 = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8)),
+    SF3B1 = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8)),
+    del11q = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8)),
+    trisomy12 = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8))
+))
+
+pway <- as.data.frame(df_comb[,1:2])
+pway_ordered = pway[match(rownames(z), pway$drug), ]
+
+ha2 = rowAnnotation(
+  Pathway = pway_ordered$Pathway_mod, 
+  annotation_name_gp = gpar(fontsize = 8), 
+  col = list(Pathway = annotation_colors_row),
+  annotation_legend_param = list(
+    Pathway = list(
+      title_gp = gpar(fontsize = 8, fontface = "bold"),
+      labels_gp = gpar(fontsize = 8),
+      ncol = 1
+    )
+  )
+)
+
+#heatmap
+cll <- Heatmap(z, name = "Z-score", column_title = "CLL", column_title_gp = gpar(fontsize = 8, fontface = "bold"), show_row_names = TRUE, show_column_names=FALSE, row_names_gp = gpar(fontsize = 8), width = ncol(z)*unit(0.75, "mm"), height = nrow(z)*unit(2.75, "mm"), col = color_fun_reversed, top_annotation = ha, left_annotation = ha2, show_column_dend = FALSE, row_title = NULL, show_row_dend = TRUE,
+#row_km = 5,
+#row_title_gp = gpar(fontsize = 8), 
+show_parent_dend_line = FALSE, heatmap_legend_param = list(direction = "vertical", title_gp = gpar(fontsize = 8, fontface = "bold"), labels_gp = gpar(fontsize = 8)))
