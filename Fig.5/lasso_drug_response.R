@@ -52,7 +52,7 @@ viabMat <- filter(merged_table_long, diagnosis %in% c("CLL")) %>%
   group_by(patientID, drug) %>% summarise(viab = mean(viability)) %>%  
   ungroup() %>%
   spread(key = patientID, value = "viab") %>% data.frame() %>%
-  column_to_rownames("drug") %>% as.matrix()
+  column_to_rownames("drug") %>% as.matrix() |> t()
 
 ## Data pre-processing
 
@@ -101,7 +101,7 @@ rownames(methPCA) <- encPatientID[match(rownames(methPCA), encPatientID$PatientI
 
 #4. Genetic data (CNV, SNV): remove features with >20% missing data, then set missing data as 0 (wt).
 #genetics
-genData <- filter(patMeta, Patient.ID %in% colnames(viabMat)) %>%
+genData <- filter(patMeta, Patient.ID %in% rownames(viabMat)) %>%
   dplyr::select(-gender, -diagnosis, -IGHV.status, -Methylation_Cluster, -treatment) %>%
   mutate_at(vars(-Patient.ID), as.character) %>%
   mutate_at(vars(-Patient.ID), as.integer) %>%
@@ -122,7 +122,7 @@ genData <- apply(genData, 2, function(x) {
 
 #5. IGHV and methylation cluster
 #create patBack
-patBack <- filter(patMeta, Patient.ID %in% colnames(viabMat)) %>%
+patBack <- filter(patMeta, Patient.ID %in% rownames(viabMat)) %>%
   dplyr::select(-project, -date.of.diagnosis, 
                 #-treatment, 
                 -date.of.first.treatment, -HIPO.ID)
@@ -302,7 +302,7 @@ runGlm <- function(X, y, method = "ridge", repeats=20, folds = 3) {
 #Prepare clean data for feature selection, only genetic, IGHV included
 inclSet<-list(gen=genData, 
               IGHV=IGHVData, 
-              Mcluster = Mcluster, 
+              #Mcluster = Mcluster, 
               #pretreated=pretreated,
               drugs=viabMat)
 cleanData <- generateData(inclSet, censor = 4, onlyCombine = TRUE)
@@ -410,25 +410,32 @@ lassoPlot <- function(lassoOut, cleanData, freqCut = 1, coefCut = 0.01, setNumbe
     matValue$Sample <- factor(matValue$Sample, levels = names(seaValue))
     #plot the heatmap
     p1 <- ggplot(matValue, aes(x=Sample, y=Var)) + geom_tile(aes(fill=Value), color = "gray") + 
-      theme_bw() + scale_y_discrete(expand=c(0,0)) + theme(axis.text.y=element_text(hjust=0, size=10), axis.text.x=element_blank(), axis.ticks=element_blank(), panel.border=element_rect(colour="gainsboro"),  plot.title=element_text(size=12), panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank()) + xlab("patients") + ylab("") + scale_fill_manual(name="Mutated", values=c(color4viab, `11`="gray96", `12`='black', `21`='#DEEBF7', `22`='#9ECAE1',`23` = '#3182BD'),guide=FALSE) + ggtitle(seaName)
+      theme_bw() + scale_y_discrete(expand=c(0,0)) + 
+      theme(axis.text.y=element_text(hjust=0, size=8, color="black"), axis.text.x=element_blank(), 
+            axis.ticks=element_blank(), panel.border=element_rect(colour="gainsboro"),  
+            plot.title=element_text(size=8, color="black", face="bold"), 
+            panel.background=element_blank(), panel.grid.major=element_blank(), 
+            panel.grid.minor=element_blank()) + 
+      xlab("patients") + ylab("") + scale_fill_manual(name="Mutated", values=c(color4viab, `11`="gray96", `12`='black', `21`='#DEEBF7', `22`='#9ECAE1',`23` = '#3182BD'),guide=FALSE) + ggtitle(seaName)
     
     #Plot the bar plot on the left of the heatmap
     barDF = data.frame(barValue, nm=factor(names(barValue),levels=names(barValue)))
     
     p2 <- ggplot(data=barDF, aes(x=nm, y=barValue)) + 
-      geom_bar(stat="identity", fill="lightblue", colour="black", position = "identity", width=.66, size=0.2) + 
-      theme_bw() + geom_hline(yintercept=0, size=0.3) + scale_x_discrete(expand=c(0,0.5)) + 
+      geom_bar(stat="identity", fill="lightblue", position = "identity", width=.8, alpha=0.75) + 
+      theme_bw() + geom_hline(yintercept=0, size=0.5) + scale_x_discrete(expand=c(0,0.5)) + 
       scale_y_continuous(expand=c(0,0)) + coord_flip(ylim=c(min(barValue),max(barValue))) + 
       theme(panel.grid.major=element_blank(), panel.background=element_blank(), axis.ticks.y = element_blank(),
-            panel.grid.minor = element_blank(), axis.text=element_text(size=8), panel.border=element_blank()) +
-      xlab("") + ylab("") + geom_vline(xintercept=c(0.5), color="black", size=0.6)
+            panel.grid.minor = element_blank(), axis.text=element_text(size=8, color="black"), panel.border=element_blank(), axis.line.x = element_line(color="black", size=0.5))+
+      xlab("") + ylab("") + geom_vline(xintercept=c(0.5), color="black")
     
     #Plot the scatter plot under the heatmap
     
     # scatterplot below
     scatterDF = data.frame(X=factor(names(seaValue), levels=names(seaValue)), Y=seaValue)
     
-    p3 <- ggplot(scatterDF, aes(x=X, y=Y)) + geom_point(shape=21, fill="dimgrey", colour="black", size=1.2) + theme_bw() + theme(panel.grid.minor=element_blank(), panel.grid.major.x=element_blank(), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.text.y=element_text(size=8), panel.border=element_rect(colour="dimgrey", size=0.1), panel.background=element_rect(fill="gray96"))
+    p3 <- ggplot(scatterDF, aes(x=X, y=Y)) + geom_point(shape=21, fill="grey80", colour="black", size=1.2) + theme_bw() + 
+      theme(panel.grid.minor=element_blank(), panel.grid.major.x=element_blank(), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.text.y=element_text(size=8, color="black"), panel.border=element_rect(colour="dimgrey", size=0.1), panel.background=element_rect(fill="gray96"))
     
     #Scale bar for continuous variable
     
@@ -438,7 +445,7 @@ lassoPlot <- function(lassoOut, cleanData, freqCut = 1, coefCut = 0.01, setNumbe
     #Assemble all the plots togehter
     
     # construct the gtable
-    wdths = c(1.5, 0.2, 1.3*ncol(matValue), 1.4, 1)
+    wdths = c(1.5, 0.2, 1.3*ncol(matValue), 0.7, 1)
     hghts = c(0.1, 0.0010*nrow(matValue), 0.16, 0.5)
     gt = gtable(widths=unit(wdths, "in"), heights=unit(hghts, "in"))
     
@@ -469,7 +476,17 @@ lassoPlot <- function(lassoOut, cleanData, freqCut = 1, coefCut = 0.01, setNumbe
 heatMaps <- lassoPlot(lassoResults, cleanData, freqCut = 0.8, coefCut = 0.05)
 
 #Show some examples, based on figure 5B in the JCI paper.**
+showDrugs <- c("Ibrutinib", "PRT062607", "ONO.4059")
+
 plotList <- heatMaps[showDrugs]
 plotList <- plotList[!is.na(plotList)]
-gridExtra::grid.arrange(grobs = plotList,
+Fig5d <- gridExtra::grid.arrange(grobs = plotList,
                         ncol =1)
+
+#Show some examples, based on figure 5B in the JCI paper.**
+showDrugs <- c("Fludarabine", "Nutlin.3a")
+
+plotList <- heatMaps[showDrugs]
+plotList <- plotList[!is.na(plotList)]
+SFig10i <- gridExtra::grid.arrange(grobs = plotList,
+                                 ncol =1)
