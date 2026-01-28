@@ -1,12 +1,14 @@
 # CPS1000
 
----
-
 This repository contains data and scripts to reproduce the figures and analyses presented in the paper:
+
+---
 
 **Drug response of leukemia and lymphoma**
 
 Kevin D. Hofer, Sebastian Scheinost, Lena Ben Taarit, Jennifer Hüllein, Tatjana Walther, Kerstin Putzker, Leopold Sellner, Małgorzata Oleś, Sascha Dietrich, Jérôme Huber, Michael W.M. Kühn, Thomas Kindler, Olivier Bernard, Florence Nguyen-Khac, Marta Crespo Maull, Francesc Bosch, Alexandre Theocharides, Markus G. Manz, Beat Bornhauser, Jean-Pierre Bourquin, Joe Lewis, Wolfgang Huber, Junyan Lu, Thorsten Zenz
+
+---
 
 All data of the CPS1000 cohort is stored in /data/CPS1000_data.RData. The analysis scripts can be found under CPS1000_Analysis.Rmd with the associated .html file.
 
