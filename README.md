@@ -1,7 +1,5 @@
 # CPS1000
 
-(currently, the numbering of the supplementary figures starts at SFig5 (which is SFig2). I will rename the the figures correctly once we have decided on the final order)
-
 ---
 
 This repository contains data and scripts to reproduce the figures and analyses presented in the paper:
@@ -18,7 +16,7 @@ Please refer to the methods of the manuscript for details on the experimental se
 
 If you use data from this work in published research, please cite the paper. 
 
-Installation guide 
+**Installation guide**
 To run the entire analysis, clone the repository and run the script CPS1000_Analysis.Rmd and EMBL2016_Analysis.Rmd.
 
 System requirements 
