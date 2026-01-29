@@ -1,5 +1,14 @@
 # CPS1000
 
+---
+
+*Note:*
+In the R Markdown document, the following figures are still missing: FigS1, FigS6, FigS7, FigS9, FigS10 + tables (reorder)
+
+These figures not yet working properly: Fig4 (correlation plots), FigS5 (network plot)
+
+---
+
 This repository contains data and scripts to reproduce the figures and analyses presented in the paper:
 
 ---
@@ -30,7 +39,3 @@ To run the analysis, R (at least version 4.1.0) and all dependency libraries are
 
 The CPS1000 analysis script takes roughly ... minutes to run. The expected output is shown in /figures and /tables.
 
----
-
-*Note:*
-The following figures are missing/not working properly in the R Markdown document: Fig4 (correlation plots), FigS5 (network plot), FigS1, FigS6, FigS7, FigS9, FigS10 + tables (reorder)
