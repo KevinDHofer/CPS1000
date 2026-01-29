@@ -28,4 +28,9 @@ To run the analysis, R (at least version 4.1.0) and all dependency libraries are
 
 *Output*
 
-The CPS1000 analysis script takes roughly ... minutes to run, mostly due to the ... The expected output is shown in /figures and /tables.
+The CPS1000 analysis script takes roughly ... minutes to run. The expected output is shown in /figures and /tables.
+
+---
+
+*Note:*
+The following figures are missing/not working properly in the R Markdown document: Fig4 (correlation plots), FigS5 (network plot), FigS1, FigS6, FigS7, FigS9, FigS10 + tables (reorder)
