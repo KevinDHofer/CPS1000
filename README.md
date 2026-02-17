@@ -3,7 +3,7 @@
 ---
 
 *Note:*
-In the R Markdown document, the following figures are still missing: FigS1, FigS6, FigS7, FigS9, FigS10 + tables (reorder)
+In the R Markdown document, the following figures are still missing: FigS1, FigS6, FigS7 + tables (reorder)
 
 These figures not yet working properly: Fig4 (correlation plots), FigS5 (network plot)
 
