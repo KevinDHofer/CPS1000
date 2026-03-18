@@ -3,9 +3,7 @@
 ---
 
 *Note:*
-In the R Markdown document, the following figures are still missing: FigS1, FigS6, FigS7 + tables (reorder)
-
-These figures are not yet properly plotted: FigS5 (network plot)
+In the R Markdown document, the following figures are still missing: FigS6, FigS7 + supp. tables
 
 ---
 
@@ -13,7 +11,7 @@ This repository contains data and scripts to reproduce the figures and analyses 
 
 ---
 
-**Drug response of leukemia and lymphoma**
+**Functional profiling of leukemia and lymphoma by ex vivo drug screening**
 
 Kevin D. Hofer, Sebastian Scheinost, Lena Ben Taarit, Jennifer Hüllein, Tatjana Walther, Kerstin Putzker, Leopold Sellner, Małgorzata Oleś, Sascha Dietrich, Jérôme Huber, Michael W.M. Kühn, Thomas Kindler, Olivier Bernard, Florence Nguyen-Khac, Marta Crespo Maull, Francesc Bosch, Alexandre Theocharides, Markus G. Manz, Beat Bornhauser, Jean-Pierre Bourquin, Joe Lewis, Wolfgang Huber, Junyan Lu, Thorsten Zenz
 
