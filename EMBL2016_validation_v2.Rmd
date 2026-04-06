@@ -1,0 +1,357 @@
+---
+title: "CPS1000_Analysis"
+author: ""
+date: "`r doc_date()`"
+output:
+  BiocStyle::html_document:
+      toc: yes
+      toc_depth: 3
+      toc_float: yes
+      code_folding: "hide" 
+editor_options: 
+  chunk_output_type: inline
+---
+
+This R code includes the validation analyses and figures of the EMBL2016 screen, written by Kevin D. Hofer and Junyan Lu.
+
+# Setup
+```{r options, message=FALSE, warning = FALSE}
+library(knitr)
+options(digits=3, width=80)
+opts_chunk$set(echo=TRUE,tidy=FALSE,include=TRUE)
+```
+
+## Define functions functions for cox regression
+```{r}
+#univariate
+com_uni <- function(response, time, endpoint, scale =FALSE) {  
+  
+  if (scale) {
+    #calculate z-score
+    response <- (response - mean(response, na.rm = TRUE))/sd(response, na.rm=TRUE)
+  }
+  
+  tryCatch({
+    surv <- coxph(Surv(time, endpoint) ~ response) 
+    resTab <- tibble(p = summary(surv)[[7]][,5], 
+                     HR = summary(surv)[[7]][,2], 
+                     lower = summary(surv)[[8]][,3], 
+                     higher = summary(surv)[[8]][,4])
+  }, error = function(err) {
+    resTab <- tibble(p = NA, 
+                     HR = NA, 
+                     lower = NA, 
+                     higher = NA)
+  })
+  
+}
+
+
+#multivariate
+com <- function(response, ighv, del17p_TP53, time, endpoint, scale =FALSE) {  
+  
+  if (scale) {
+    #calculate z-score
+    response <- (response - mean(response, na.rm = TRUE))/sd(response, na.rm=TRUE)
+  }
+  
+  tryCatch({
+    surv <- coxph(Surv(time, endpoint) ~ response+ighv+del17p_TP53) 
+    resTab <- tibble(variable = c("response", "ighv", "TP53_del17p"),
+                     p = summary(surv)[[7]][,5], 
+                     HR = summary(surv)[[7]][,2], 
+                     lower = summary(surv)[[8]][,3], 
+                     higher = summary(surv)[[8]][,4])
+  }, error = function(err) {
+    resTab <- tibble(variable = c("response", "ighv", "TP53_del17p"),
+                     p = NA, 
+                     HR = NA, 
+                     lower = NA, 
+                     higher = NA)
+  })
+  
+}
+```
+
+# Load data from separate cohort (EMBL2016)
+```{r}
+
+#validation in EMBL2016
+load(paste0(filepath,"validation/newEMBL_processed_20220506.RData"))
+load(paste0(filepath,"validation/patmeta_210324.RData"))
+
+patMeta[patMeta$Patient.ID %in% "P1499",]$diagnosis <- "HCL-v"
+
+##define some useful function
+absmax <- function(x) { x[which.max( abs(x) )]}
+
+# Sample filtering
+#1. Remove counter screen and CV plates 
+screenData <- dplyr::filter(emblNew, patID != "ATP", !is.na(name))
+
+#2. Remove low-quality samples and problematic drugs based on previous QA analysis
+screenData <- dplyr::filter(screenData, ! lowQuality)
+
+#3. Use incubation effect adjusted viabilities
+screenData <- mutate(screenData, viab = normVal.sigm, viab.auc = normVal_auc.sigm)
+
+#4. Use AUC (mean) to summarise drug effect across concentrations
+screenData <- dplyr::rename(screenData, viab.mp = normVal_auc.sigm, patientID = patID) #AUC of edge effect corrected values
+
+#5. Show drugs that were not tested for all samples
+nTotal <- length(unique(screenData$patID))
+
+#drug that are not screened in all samples
+drugTab <- distinct(screenData, patientID, name) %>% mutate_all(as.character) %>%
+  group_by(name) %>% summarise(n = length(patientID)) %>% filter(n<nTotal) %>%
+  arrange(n)
+
+screenData <- screenData %>% filter(!str_detect(name, "PRO|CHEMBL"))
+```
+
+```{r}
+#Annotate target class
+tarAnno <- read.csv2(paste0(filepath,"validation/targetAnnotation_all.csv"))
+screenData <- mutate(screenData, class = tarAnno[match(emblObjID, tarAnno$drugID),]$Class,
+                     target = tarAnno[match(emblObjID, tarAnno$drugID),]$target)
+
+# Format table
+screenData <- dplyr::select(screenData, well, val, patientID, batch, 
+                            sampleID, drugID, conc, concIndex, viab, viab.auc, name, diagnosis) %>%
+  mutate(patientID = as.character(patientID), drugID = as.character(drugID)) %>%
+  dplyr::rename(Drug = name) %>% 
+  mutate(concIndex = as.factor(as.character(concIndex)),
+         diagnosis = patMeta[match(patientID, patMeta$Patient.ID),]$diagnosis)
+
+screenData <- screenData |> 
+  filter(diagnosis == "CLL")
+
+#patient samples
+length(unique(screenData$patientID))
+
+#drugs
+length(unique(screenData$Drug))
+```
+
+```{r}
+#merge with genomic variations
+#genetic background
+geneBack_embl <- patMeta[match(unique(screenData$patientID), patMeta$Patient.ID),] %>%
+  dplyr::select(-HIPO.ID, -diagnosis, -project, -date.of.diagnosis, -treatment, -date.of.first.treatment,
+                -gender, -Methylation_Cluster) %>%
+  mutate(IGHV.status = ifelse(is.na(IGHV.status), NA, 
+                              ifelse(IGHV.status == "M",1,0))) %>%
+  data.frame() %>% column_to_rownames("Patient.ID") %>%
+  mutate_all(as.character) %>% mutate_all(as.integer) 
+
+#only select variants that have at least 5 mutated cases
+geneBack_embl <- geneBack_embl[,colSums((!is.na(geneBack_embl) & geneBack_embl == 1)) >=5]
+geneBack_embl$Patient.ID <- unique(screenData$patientID)
+
+geneTab_embl <- gather(geneBack_embl, key = "gene", value = "status", -Patient.ID)
+
+#combine
+combined_embl <- screenData |> 
+  dplyr::select(patientID, sampleID, conc, concIndex, viab, viab.auc, Drug) |> 
+  filter(Drug %in% c("ONO-4059")) |> 
+  group_by(patientID, sampleID, Drug) |> 
+  summarize(viab.mean = mean(viab)) |> 
+  merge(geneBack_embl[,c("Patient.ID", "IGHV.status", "del17p", "TP53")], by.x="patientID", by.y="Patient.ID")
+```
+
+```{r}
+#merge with treatment and survival data
+surv.all.embl <- combined_embl |> 
+  merge(treatmentTab[,c("Patient.ID", "sampleID", "sampleDate", "treatStatus")], by.x=c("patientID", "sampleID"), by.y=c("Patient.ID", "sampleID")) |> 
+  merge(survival |> 
+          rename(patientID = patID), by=c("patientID", "sampleID")) |> 
+  filter(treatStatus %in% c("untreated", "treatedBefore"))
+
+#summary
+length(unique(surv.all.embl$patientID))
+
+surv.all.embl |> 
+  group_by(treatStatus) |> 
+  summarize(n=n())
+```
+
+## Cox regression on surival outcomes
+Univariate
+```{r}
+#combine del17p and TP53, add age
+surv.all.embl <- surv.all.embl |> 
+  mutate(del17p_TP53 = ifelse(del17p==1 | TP53==1, 1, 0)) |> 
+  left_join(age, by="sampleID")
+
+#univariate analysis
+#for OS
+resOS_uni_embl <- filter(surv.all.embl, !is.na(OS)
+                         #, !is.na(IGHV.status)
+                         ) %>%
+  group_by(Drug
+           #, IGHV.status
+           ) %>%
+  do(com_uni(.$viab.mean, .$OS, .$died, TRUE)) %>% ungroup() %>%
+  arrange(p) %>% mutate(p.adj = p.adjust(p, method = "BH")) %>%
+  mutate(Endpoint = "OS", Predictor = "viab.mean")
+
+resOS_uni_embl_gen <- data.frame()
+genetics <- c("IGHV.status", "del17p_TP53")
+
+for (gen in genetics) {
+  
+res <- filter(surv.all.embl, !is.na(OS)) %>%
+  group_by(Drug) %>%
+  do(com_uni(.[[gen]], .$OS, .$died, FALSE)) %>% ungroup() %>%
+  arrange(p) %>% mutate(p.adj = p.adjust(p, method = "BH")) %>%
+  mutate(Endpoint = "OS", Predictor = gen)
+
+resOS_uni_embl_gen <- rbind(resOS_uni_embl_gen, res)
+}
+
+resOS_uni_embl <- rbind(resOS_uni_embl, resOS_uni_embl_gen)
+resOS_uni_embl
+
+#for TTT
+resTTT_uni_embl <- filter(surv.all.embl, !is.na(TTT), !is.na(IGHV.status)) %>%
+  group_by(Drug
+           #, IGHV.status
+           ) %>%
+  do(com_uni(.$viab.mean, .$TTT, .$treatedAfter, TRUE)) %>% ungroup() %>%
+  arrange(p) %>% mutate(p.adj = p.adjust(p, method = "BH")) %>%
+  mutate(Endpoint = "TTT", Predictor = "viab.mean")
+
+resTTT_uni_embl_gen <- data.frame()
+genetics <- c("IGHV.status", "del17p_TP53")
+
+for (gen in genetics) {
+  
+  res <- filter(surv.all.embl, !is.na(TTT)) %>%
+    group_by(Drug) %>%
+    do(com_uni(.[[gen]], .$TTT, .$treatedAfter, FALSE)) %>% ungroup() %>%
+    arrange(p) %>% mutate(p.adj = p.adjust(p, method = "BH")) %>%
+    mutate(Endpoint = "TTT", Predictor = gen)
+  
+  resTTT_uni_embl_gen <- rbind(resTTT_uni_embl_gen, res)
+}
+
+resTTT_uni_embl <- rbind(resTTT_uni_embl, resTTT_uni_embl_gen)
+resTTT_uni_embl
+
+#Plot hazard ratios and p values
+plotTab_uni_embl <- bind_rows(resOS_uni_embl, resTTT_uni_embl)
+
+embl_uni <- plotTab_uni_embl |> 
+  ggplot(aes(x=Predictor, y = HR, col = Endpoint, dodge = Endpoint)) + 
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_point(position = position_dodge(width=0.75)) +
+  geom_errorbar(position = position_dodge(width =0.75), 
+                aes(ymin = lower, ymax = higher), width = 0.3) + 
+  geom_text(position = position_dodge(width =0.75), size = 3,
+            aes(y = HR, 
+                label = ifelse(p < 0.001, 
+                               "italic(P)<0.001", 
+                               paste0("italic(P)==", sprintf("%1.3f", p)))),
+            parse = TRUE,
+            vjust=-1) +
+  coord_flip() +
+  labs(title= "EMBL2016: Univariate Cox", y="Hazard ratio", x="")+ 
+  theme_classic() +
+  theme(
+    axis.text = element_text(size =8, color="black"), 
+    axis.title = element_text(size =8, color="black"),
+    legend.title = element_text(size=8, face="bold"),
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+    legend.key.size = unit(0.5, 'cm'))+
+  scale_color_manual(values=colors_cox)+
+  guides(color = guide_legend(override.aes = aes(label = "")))+
+  scale_x_discrete(labels=c("TP53/del(17p)", "IGHV", "Ex vivo\nresistance to\nONO-4059"))+
+  scale_y_log10(limits=c(0.05,10), breaks=c(0.05, 0.5, 1, 5,10))
+FigS11b_top <- embl_uni + theme(plot.margin = margin(t=1, r=1, b=1, unit = "cm"))
+```
+
+Multivariate
+```{r}
+#multivariate
+#for OS
+resOS_embl <- filter(surv.all.embl, !is.na(OS), !is.na(IGHV.status), !is.na(TP53), !is.na(del17p)) %>%
+  group_by(Drug) %>%
+  do(com(.$viab.mean, .$IGHV.status, .$del17p_TP53, .$OS, .$died, TRUE)) %>% ungroup() %>%
+  arrange(p) %>% mutate(p.adj = p.adjust(p, method = "BH")) %>%
+  mutate(Endpoint = "OS")
+
+#for TTT
+resTTT_embl <- filter(surv.all.embl, !is.na(TTT), !is.na(IGHV.status), !is.na(TP53), !is.na(del17p)) %>%
+  group_by(Drug) %>%
+  do(com(.$viab.mean, .$IGHV.status, .$del17p_TP53,.$TTT, .$treatedAfter, TRUE)) %>% ungroup() %>%
+  arrange(p) %>% mutate(p.adj = p.adjust(p, method = "BH")) %>%
+  mutate(Endpoint = "TTT")
+
+plotTab_multi_embl <- rbind(resOS_embl, resTTT_embl)
+
+#plot factors
+embl_multi <- plotTab_multi_embl |> 
+  ggplot(aes(x=variable, y = HR, col = Endpoint)) + 
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_point(position = position_dodge(width=0.75)) +
+  geom_errorbar(position = position_dodge(width =0.75), 
+                aes(ymin = lower, ymax = higher), width = 0.3) + 
+  geom_text(position = position_dodge(width =0.75), size = 3,
+            aes(y = HR, 
+                label = ifelse(p < 0.001, 
+                               "italic(P)<0.001", 
+                               paste0("italic(P)==", sprintf("%1.3f", p)))),
+            parse = TRUE,
+            vjust=-1) +
+  coord_flip() +
+  labs(title= "EMBL2016: Multivariate Cox", y="Hazard ratio", x="")+ 
+  theme_classic() +
+  theme(
+    axis.text = element_text(size =8, color="black"), 
+    axis.title = element_text(size =8, color="black"),
+    legend.title = element_text(size=8, face="bold"),
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(hjust=0.5, size=8, face="bold"), 
+    legend.key.size = unit(0.5, 'cm'))+
+  scale_color_manual(values=colors_cox)+
+  guides(color = guide_legend(override.aes = aes(label = "")))+
+  scale_x_discrete(labels=c("IGHV", "Ex vivo\nresistance to\nONO-4059", "TP53/del(17p)"))+
+  scale_y_log10(limits=c(0.05,10), breaks=c(0.05, 0.5, 1, 5,10))
+
+FigS11b_bottom <- embl_multi + theme(plot.margin = margin(r=1, b=1, unit = "cm"))
+```
+
+```{r, fig.width=6, fig.height=8}
+#combine
+FigS11b <- FigS11b_top/FigS11b_bottom
+FigS11b
+```
+
+
+```{r}
+#multipanel
+#FigS11
+
+col <- plot_grid(FigS11c, NULL, nrow = 2, rel_heights = c(0.8, 0.2))
+
+row1 <- plot_grid(FigS11a, FigS11b, col, align = "h", axis = c("t"), nrow = 1, rel_widths = c(0.4,0.3, 0.3), 
+                  labels=c("A", "B", "C"), label_size=14)
+
+row2 <- plot_grid(FigS11d, NULL, nrow = 1, rel_widths = c(0.4,0.6), 
+                  labels=c("D"), label_size=14)
+
+FigS11 <- plot_grid(row1, row2, NULL, nrow=3, rel_heights = c(0.3, 0.175, 0.525)) & theme(plot.margin=margin(r=1,l=1,t=1,b=1,unit="cm"))
+
+ggsave(path=(paste0(filepath,"figures")), filename = "FigS11.svg", width=42, height=59.4, units = "cm")
+ggsave(path=(paste0(filepath,"figures")), filename = "FigS11.pdf", width=42, height=59.4, units = "cm")
+ggsave(path=(paste0(filepath,"figures")), filename = "FigS11.png", width=42, height=59.4, units = "cm", dpi=600)
+
+```
+
+# Session info
+```{r}
+sessionInfo()
+```
