@@ -1,10 +1,6 @@
 # CPS1000
 
----
-
 This repository contains data and scripts to reproduce the figures and analyses presented in the paper:
-
----
 
 **Functional profiling of leukemia and lymphoma by ex vivo drug screening**
 
