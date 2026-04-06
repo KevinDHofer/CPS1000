@@ -2,11 +2,6 @@
 
 ---
 
-*Note:*
-In the R Markdown document, the following figures are still missing: FigS6, FigS7 + supp. tables
-
----
-
 This repository contains data and scripts to reproduce the figures and analyses presented in the paper:
 
 ---
@@ -19,15 +14,15 @@ Kevin D. Hofer, Sebastian Scheinost, Lena Ben Taarit, Jennifer Hüllein, Tatjana
 
 All data of the CPS1000 cohort is stored in /data/CPS1000_data.RData. The analysis scripts can be found under CPS1000_Analysis.Rmd with the associated .html file.
 
-For the validation cohort (EMBL2016) data are stored in /validation/EMBL2016_data.RData.
+The respective validation data are stored in /validation.
 
-Please refer to the methods of the manuscript for details on the experimental setup and quality-control measures.
+Please refer to the methods of the manuscript for details on the experimental setup.
 
 If you use data from this work in published research, please cite the paper. 
 
 *Installation guide*
 
-To run the entire analysis, clone the repository and run the script CPS1000_Analysis.Rmd.
+To run the entire analysis, clone the repository and run the script CPS1000_analysis.Rmd and EMBL2016_validation.Rmd.
 
 *System requirements*
 
