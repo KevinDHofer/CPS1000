@@ -8,7 +8,7 @@ Kevin D. Hofer, Sebastian Scheinost, Lena Ben Taarit, Jennifer Hüllein, Tatjana
 
 ---
 
-All data of the CPS1000 cohort is stored in /data/CPS1000_data.RData. The analysis scripts can be found under CPS1000_Analysis.Rmd with the associated .html file.
+All data of the CPS1000 cohort is stored in /data/CPS1000_data.RData. The analysis scripts can be found under CPS1000_analysis.Rmd with the associated .html file.
 
 The respective validation data are stored in /validation.
 
@@ -18,13 +18,4 @@ If you use data from this work in published research, please cite the paper.
 
 *Installation guide*
 
-To run the entire analysis, clone the repository and run the script CPS1000_analysis.Rmd and EMBL2016_validation.Rmd.
-
-*System requirements*
-
-To run the analysis, R (at least version 4.1.0) and all dependency libraries are required.
-
-*Output*
-
-The CPS1000 analysis script takes roughly ... minutes to run. The expected output is shown in /figures and /tables.
-
+To run the entire analysis, clone the repository and run the script CPS1000_analysis.Rmd and Validation.Rmd.
