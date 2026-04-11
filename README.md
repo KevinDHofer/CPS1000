@@ -18,4 +18,4 @@ If you use data from this work in published research, please cite the paper.
 
 *Installation guide*
 
-To run the entire analysis, clone the repository and run the script CPS1000_analysis.Rmd and Validation.Rmd.
+To run the entire analysis, clone the repository, download the TSV file from the CLL-map Portal (cllmap.org) to the /validation folder and run the script CPS1000_analysis.Rmd and Validation.Rmd.
