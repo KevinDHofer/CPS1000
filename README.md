@@ -8,9 +8,9 @@ Kevin D. Hofer, Sebastian Scheinost, Lena Ben Taarit, Jennifer Hüllein, Tatjana
 
 ---
 
-All data of the CPS1000 cohort is stored in /data/CPS1000_data.RData. The analysis scripts can be found under CPS1000_analysis.Rmd with the associated .html file.
+All data of the CPS1000 cohort and linked omcis matrices are stored in /data. The analysis scripts can be found under CPS1000_analysis.Rmd with the associated .html file. 
 
-The respective validation data are stored in /validation.
+The respective validation data are stored in /validation. To rerun the analysis, add the respective data from the CLL-map Portal (cllmap.org): download the TSV file and the 41588_2022_1140_MOESM3_ESM.xlsx file to the validation folder.
 
 Please refer to the methods of the manuscript for details on the experimental setup.
 
@@ -18,8 +18,4 @@ If you use data from this work in published research, please cite the paper.
 
 *Installation guide*
 
-To run the entire analysis, clone the repository, download the TSV file from the CLL-map Portal (cllmap.org) to the /validation folder and run the script CPS1000_analysis.Rmd and Validation.Rmd.
-
----
-
-*** the EMBL screen data are not uploaded yet ***
+To run the entire analysis, clone the repository, download the files as mentioned above and run the script CPS1000_analysis.Rmd.
