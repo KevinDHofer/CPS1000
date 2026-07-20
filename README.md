@@ -2,7 +2,7 @@
 
 This repository contains data and scripts to reproduce the figures and analyses presented in this paper:
 
-**Functional profiling defines determinants of drug sensitivity and refines prognostic stratification in blood cancer**
+**Functional profiling of leukemia and lymphoma defines determinants of drug sensitivity and refines prognostic stratification**
 
 Kevin D. Hofer, Sebastian Scheinost, Lena Ben Taarit, Jennifer Hüllein, Tatjana Walther, Kerstin Putzker, Leopold Sellner, Małgorzata Oleś, Sascha Dietrich, Jérôme Huber, Odit Gutwein, Marta Pinto Carbo, Miriam Müller, Rosary Yao, Michael W.M. Kühn, Thomas Kindler, Olivier Bernard, Florence Nguyen-Khac, Marta Crespo Maull, Francesc Bosch, Alexandre Theocharides, Markus G. Manz, Beat Bornhauser, Jean-Pierre Bourquin, Joe Lewis, Wolfgang Huber, Junyan Lu, Thorsten Zenz
 
