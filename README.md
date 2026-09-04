@@ -22,7 +22,7 @@ To run the entire analysis, clone the repository and run the script CPS1000_anal
 
 *System requirements*
 
-The code has been tested on R (version 4.4.2), which is recommend for use with all dependency libraries required.
+The code has been tested on R (version 4.4.2). This version is recommend for use with all dependency libraries required.
 
 *Output*
 
