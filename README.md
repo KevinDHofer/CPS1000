@@ -19,3 +19,11 @@ If you use data from this work in published research, please cite the paper.
 *Installation guide*
 
 To run the entire analysis, clone the repository and run the script CPS1000_analysis.Rmd.
+
+*System requirements*
+
+The code has been tested on R (version 4.4.2), which is recommend for use with all dependency libraries required.
+
+*Output*
+
+The CPS1000_analysis.Rmd takes roughly 5 minutes to run. The expected output is shown in CPS1000_analysis.html.
